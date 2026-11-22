@@ -1,0 +1,2540 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>고요한 고택과 숲길 3D: 실시간 멀티플레이어 월드</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Google Fonts: 손글씨/명조 감성 폰트 -->
+    <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Nanum+Pen+Script&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Gowun Batang', serif;
+            background-color: #f4f1ea;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        .sketch-box {
+            background-color: rgba(252, 250, 245, 0.94);
+            border: 2.5px solid #222;
+            border-radius: 12px 16px 14px 15px / 15px 12px 16px 13px;
+            box-shadow: 4px 4px 0px #222;
+        }
+        .sketch-btn {
+            background-color: #fff;
+            border: 2px solid #222;
+            border-radius: 8px 11px 9px 10px;
+            box-shadow: 2px 2px 0px #222;
+            transition: all 0.1s ease;
+        }
+        .sketch-btn:active {
+            transform: translate(2px, 2px);
+            box-shadow: 0px 0px 0px #222;
+        }
+        .sketch-btn-primary {
+            background-color: #2b2b2b;
+            color: #f4f1ea;
+        }
+        .handwriting {
+            font-family: 'Nanum Pen Script', cursive;
+        }
+        /* 말풍선 오버레이 */
+        .player-label {
+            position: absolute;
+            transform: translate(-50%, -100%);
+            pointer-events: none;
+            white-space: nowrap;
+            text-align: center;
+            z-index: 10;
+        }
+        /* 조이스틱 영역 */
+        #joystick-zone {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            width: 110px;
+            height: 110px;
+            border-radius: 50%;
+            border: 2px dashed rgba(34, 34, 34, 0.4);
+            background: rgba(255, 255, 255, 0.3);
+            z-index: 20;
+            display: none;
+        }
+        #joystick-knob {
+            position: absolute;
+            top: 35px;
+            left: 35px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #222;
+            opacity: 0.7;
+        }
+        @media (pointer: coarse) {
+            #joystick-zone {
+                display: block;
+            }
+        }
+        /* 스크롤바 커스텀 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #222;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D 캔버스 컨테이너 -->
+    <div id="canvas-container"></div>
+
+    <!-- 3D 캐릭터 머리 위 이름표 및 말풍선 컨테이너 -->
+    <div id="labels-container" class="fixed inset-0 pointer-events-none overflow-hidden"></div>
+
+    <!-- 상단 상태 바 (포만감, 기력, 접속자 수, 내 ID) -->
+    <div class="fixed top-3 left-3 right-3 flex flex-wrap justify-between items-start gap-2 pointer-events-none z-20">
+        <!-- 내 상태 패널 -->
+        <div class="sketch-box p-3 pointer-events-auto flex flex-col gap-1.5 min-w-[210px]">
+            <div class="flex items-center justify-between border-b border-stone-300 pb-1 gap-2">
+                <span id="ui-nickname" class="font-bold text-stone-900 text-sm">숲길 나그네</span>
+                <div class="flex items-center gap-1">
+                    <span id="ui-sync-badge" class="text-[10px] font-bold text-amber-700">● 연결중</span>
+                    <span class="text-xs bg-stone-800 text-stone-100 px-2 py-0.5 rounded-full">온라인: <span id="ui-online-count">1</span>명</span>
+                </div>
+            </div>
+            <!-- 실시간 접속자 목록 -->
+            <div id="ui-online-list" class="text-[10px] text-emerald-900 bg-emerald-50/90 border border-emerald-800/40 rounded px-2 py-0.5 truncate max-w-[230px]">
+                참가자: 나 (혼자 탐험 중)
+            </div>
+            <!-- 포만감 게이지 -->
+            <div class="flex items-center gap-2 text-xs">
+                <span class="w-12 font-bold text-amber-800">🍙 포만감</span>
+                <div class="flex-1 h-3 bg-stone-200 border border-stone-800 rounded-full overflow-hidden">
+                    <div id="bar-hunger" class="h-full bg-amber-500 transition-all duration-300" style="width: 80%;"></div>
+                </div>
+                <span id="val-hunger" class="w-8 text-right font-mono">80%</span>
+            </div>
+            <!-- 기력(차 효과) 게이지 -->
+            <div class="flex items-center gap-2 text-xs">
+                <span class="w-12 font-bold text-emerald-800">🍵 다기</span>
+                <div class="flex-1 h-3 bg-stone-200 border border-stone-800 rounded-full overflow-hidden">
+                    <div id="bar-energy" class="h-full bg-emerald-600 transition-all duration-300" style="width: 60%;"></div>
+                </div>
+                <span id="val-energy" class="w-8 text-right font-mono">60%</span>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-stone-600 pt-0.5">
+                <span id="ui-hopae-status" class="font-bold text-amber-800">🪪 호패: 미검사</span>
+                <span class="truncate max-w-[110px]" id="ui-userid">ID: 연결 중...</span>
+            </div>
+        </div>
+
+        <!-- 우측 상단 미니맵 / 장소 안내 & 버튼 -->
+        <div class="flex flex-col items-end gap-2 pointer-events-auto">
+            <div class="sketch-box px-3 py-2 text-xs flex items-center gap-2">
+                <span class="font-bold">📍 현재 위치:</span>
+                <span id="ui-location" class="text-stone-700 font-bold">솔숲 정문 앞길</span>
+            </div>
+            <div class="flex gap-1.5">
+                <button id="btn-view-toggle" onclick="toggleCameraMode()" class="sketch-btn px-3 py-1.5 text-xs font-bold bg-amber-50">
+                    👁️ 1인칭 시점
+                </button>
+                <button onclick="openBoardModal()" class="sketch-btn px-3 py-1.5 text-xs font-bold flex items-center gap-1">
+                    📜 고택 방명록
+                </button>
+                <button onclick="teleportSpawn()" class="sketch-btn px-3 py-1.5 text-xs font-bold">
+                    ⛰️ 정문 복귀
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1인칭 중앙 조준점 (눈 시점 몰입감) -->
+    <div id="crosshair" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full border-2 border-stone-900 bg-white/80 pointer-events-none z-10"></div>
+
+    <!-- 상호작용 안내 플로팅 버튼 (특정 구역 진입 시 표시) -->
+    <div id="interact-prompt" class="fixed bottom-28 left-1/2 -translate-x-1/2 z-30 hidden">
+        <button id="interact-btn" onclick="triggerInteraction()" class="sketch-box px-5 py-3 font-bold text-base flex items-center gap-2 bg-amber-50 hover:bg-amber-100 animate-bounce cursor-pointer">
+            <span id="interact-icon">✨</span>
+            <span id="interact-text">상호작용하기 [Space]</span>
+        </button>
+    </div>
+
+    <!-- 하단 채팅 및 조작 안내 바 -->
+    <div class="fixed bottom-3 right-3 left-3 md:left-auto md:w-96 flex flex-col gap-2 z-20 pointer-events-none">
+        <!-- 실시간 채팅 로그 -->
+        <div id="chat-log" class="sketch-box p-2.5 h-32 overflow-y-auto text-xs flex flex-col gap-1 pointer-events-auto bg-white/85">
+            <div class="text-stone-500 italic">고요한 고택과 숲길 스케치 월드에 오신 것을 환영합니다! WASD/방향키 또는 화면 터치로 걸어보세요.</div>
+        </div>
+        <!-- 채팅 입력창 -->
+        <form id="chat-form" class="flex gap-1.5 pointer-events-auto">
+            <input type="text" id="chat-input" maxlength="40" placeholder="다른 참가자에게 말 걸기..." class="sketch-box flex-1 px-3 py-2 text-xs focus:outline-none">
+            <button type="submit" class="sketch-btn sketch-btn-primary px-4 py-2 text-xs font-bold">전송</button>
+        </form>
+    </div>
+
+    <!-- 모바일 가상 조이스틱 -->
+    <div id="joystick-zone">
+        <div id="joystick-knob"></div>
+    </div>
+
+    <!-- 토스트 알림 메시지 -->
+    <div id="toast-msg" class="fixed top-24 left-1/2 -translate-x-1/2 sketch-box px-4 py-2 text-sm font-bold z-50 hidden transition-opacity"></div>
+
+    <!-- 실제 음식 섭취 시뮬레이션 HUD 오버레이 -->
+    <div id="eating-hud" class="fixed bottom-44 left-1/2 -translate-x-1/2 sketch-box px-5 py-3 flex flex-col items-center gap-1.5 z-40 hidden bg-amber-50/95">
+        <div class="flex items-center gap-2 text-sm font-bold text-stone-900">
+            <span id="eating-emoji" class="text-2xl animate-bounce">🍲</span>
+            <span id="eating-title">장터 국밥 먹는 중... (냠냠!)</span>
+        </div>
+        <div class="w-48 h-2.5 bg-stone-200 border border-stone-800 rounded-full overflow-hidden">
+            <div id="eating-progress" class="h-full bg-amber-500 transition-all duration-100" style="width: 0%;"></div>
+        </div>
+    </div>
+
+    <!-- ================= 모달 창들 ================= -->
+
+    <!-- 1. 초기 입장 닉네임 설정 모달 -->
+    <div id="welcome-modal" class="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div class="sketch-box max-w-md w-full p-6 flex flex-col gap-4 text-center">
+            <div class="text-3xl">⛰️🏮🍵</div>
+            <h1 class="text-2xl font-bold tracking-tight">고요한 고택과 숲길 3D 월드</h1>
+            <p class="text-sm text-stone-600 leading-relaxed">
+                깊은 산자락 한지 위에 먹선으로 그려진 고요한 전통 고택을 거닐어 보세요.<br>
+                정문 <b>관리위원에게 호패 검사</b>를 받고, <b>주상 전하 알현</b>, <b>손글씨 명문장 필사</b>, <b>다실 차 끓이기</b>와 <b>저잣거리 시장·편의점</b>까지 모두 즐길 수 있습니다.
+            </p>
+            <div class="flex flex-col gap-2 text-left mt-2">
+                <label class="text-xs font-bold text-stone-700">호패(닉네임) 입력</label>
+                <input type="text" id="nickname-input" maxlength="10" placeholder="예: 청산거사, 다산선비" class="sketch-box px-3 py-2.5 text-sm font-bold focus:outline-none">
+            </div>
+            <button onclick="startGame()" class="sketch-btn sketch-btn-primary py-3 font-bold text-base mt-2 cursor-pointer">
+                정문 지나 고택 입장하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. 대청마루 명문장 손글씨 따라쓰기 (터치/마우스 필사) 모달 -->
+    <div id="calligraphy-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-40 hidden">
+        <div class="sketch-box max-w-lg w-full p-5 flex flex-col gap-3">
+            <div class="flex justify-between items-center border-b-2 border-stone-800 pb-2">
+                <h2 class="text-lg md:text-xl font-bold">🖌️ 대청마루 명문장 손글씨 따라쓰기</h2>
+                <button onclick="closeModals()" class="sketch-btn px-2.5 py-1 text-xs font-bold">닫기</button>
+            </div>
+            <p class="text-xs text-stone-600">손가락(터치)이나 마우스로 한지 위의 흐린 글씨를 따라 한 획씩 정성껏 붓글씨를 써보세요.</p>
+            
+            <div class="flex justify-between items-center text-xs">
+                <span class="font-bold text-stone-700" id="quote-title">고전 명언</span>
+                <button type="button" onclick="nextQuote()" class="underline font-bold text-stone-700">다른 글귀 고르기 ↻</button>
+            </div>
+
+            <!-- 한지 손글씨 터치 캔버스 영역 -->
+            <div class="relative w-full h-48 bg-[#fdfbf4] border-2 border-stone-800 rounded-lg overflow-hidden shadow-inner">
+                <!-- 배경 가이드 글씨 (따라 쓰기용) -->
+                <div id="quote-target" class="absolute inset-0 flex items-center justify-center p-4 text-center handwriting text-3xl md:text-4xl text-stone-300 leading-snug select-none pointer-events-none">
+                    물방울이 모여 큰 바다를 이루듯 작은 선행이 모여 큰 덕을 이룬다
+                </div>
+                <!-- 실제 손으로 그리는 캔버스 -->
+                <canvas id="calligraphy-canvas" class="absolute inset-0 w-full h-full cursor-crosshair touch-none"></canvas>
+            </div>
+
+            <div class="flex justify-between items-center text-xs text-stone-600">
+                <span id="calligraphy-status" class="font-bold">필사 진행도: 0%</span>
+                <button type="button" onclick="clearCalligraphyCanvas()" class="sketch-btn px-2.5 py-1 text-xs font-bold bg-stone-100">
+                    🧹 한지 지우기
+                </button>
+            </div>
+
+            <button onclick="submitCalligraphy()" class="sketch-btn sketch-btn-primary py-2.5 font-bold text-sm">
+                붓 내려놓기 (손글씨 완료 및 방명록 등록)
+            </button>
+        </div>
+    </div>
+
+    <!-- 3. 전통 다실 (차 끓이기) 모달 -->
+    <div id="tea-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-40 hidden">
+        <div class="sketch-box max-w-md w-full p-6 flex flex-col gap-4">
+            <div class="flex justify-between items-center border-b-2 border-stone-800 pb-2">
+                <h2 class="text-xl font-bold">🍵 대숲 옆 선원 다실: 차 끓이기</h2>
+                <button onclick="closeModals()" class="sketch-btn px-2.5 py-1 text-xs font-bold">닫기</button>
+            </div>
+            <p class="text-xs text-stone-600">산속 약수를 끓여 찻잎을 우려내며 마음을 가라앉힙니다. 차를 마시면 다기(기력)가 오르고 숲길 발걸음이 가벼워집니다.</p>
+
+            <!-- 차 종류 선택 -->
+            <div class="grid grid-cols-3 gap-2">
+                <button onclick="selectTea('지리산 작설차', 35)" class="tea-opt sketch-btn p-2.5 text-center flex flex-col items-center gap-1 bg-emerald-50">
+                    <span class="text-2xl">🍃</span>
+                    <span class="text-xs font-bold">지리산 작설차</span>
+                    <span class="text-[10px] text-emerald-700">다기 +35%</span>
+                </button>
+                <button onclick="selectTea('백련 연잎차', 30)" class="tea-opt sketch-btn p-2.5 text-center flex flex-col items-center gap-1">
+                    <span class="text-2xl">🪷</span>
+                    <span class="text-xs font-bold">백련 연잎차</span>
+                    <span class="text-[10px] text-amber-700">다기 +30%</span>
+                </button>
+                <button onclick="selectTea('대추생강차', 50)" class="tea-opt sketch-btn p-2.5 text-center flex flex-col items-center gap-1">
+                    <span class="text-2xl">🫖</span>
+                    <span class="text-xs font-bold">대추생강차</span>
+                    <span class="text-[10px] text-stone-700">다기 +50%</span>
+                </button>
+            </div>
+
+            <!-- 찻주전자 끓이기 미니 인터랙션 -->
+            <div class="bg-stone-100 border-2 border-stone-800 rounded-lg p-4 text-center flex flex-col items-center gap-2">
+                <div id="tea-pot-icon" class="text-4xl transition-transform">🫖</div>
+                <div id="tea-brew-msg" class="text-xs font-bold text-stone-700">선택된 차: 지리산 작설차</div>
+                <div class="w-full h-4 bg-white border border-stone-800 rounded-full overflow-hidden">
+                    <div id="tea-progress" class="h-full bg-emerald-600 transition-all duration-100" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <button id="brew-btn" onclick="brewTeaStep()" class="sketch-btn sketch-btn-primary py-3 font-bold text-sm">
+                🔥 화로 부채질하여 약수 끓이기 (클릭!)
+            </button>
+        </div>
+    </div>
+
+    <!-- 4. 숲길 입구 편의점 모달 -->
+    <div id="store-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-40 hidden">
+        <div class="sketch-box max-w-md w-full p-6 flex flex-col gap-4">
+            <div class="flex justify-between items-center border-b-2 border-stone-800 pb-2">
+                <h2 class="text-xl font-bold">🏪 숲길 입구 편의점 (24시)</h2>
+                <button onclick="closeModals()" class="sketch-btn px-2.5 py-1 text-xs font-bold">나가기</button>
+            </div>
+            <p class="text-xs text-stone-600">숲길을 오르내리느라 출출해지셨나요? 소박하고 든든한 먹거리로 포만감을 채워보세요!</p>
+
+            <div class="grid grid-cols-2 gap-2.5">
+                <button onclick="buyFood('산나물 삼각김밥', 25, '🍙')" class="sketch-btn p-3 flex items-center gap-3 text-left hover:bg-amber-50">
+                    <span class="text-3xl">🍙</span>
+                    <div>
+                        <div class="text-xs font-bold">산나물 삼각김밥</div>
+                        <div class="text-[11px] text-amber-700 font-bold">포만감 +25%</div>
+                    </div>
+                </button>
+                <button onclick="buyFood('따끈한 잔치 컵국수', 45, '🍜')" class="sketch-btn p-3 flex items-center gap-3 text-left hover:bg-amber-50">
+                    <span class="text-3xl">🍜</span>
+                    <div>
+                        <div class="text-xs font-bold">따끈한 컵국수</div>
+                        <div class="text-[11px] text-amber-700 font-bold">포만감 +45%</div>
+                    </div>
+                </button>
+                <button onclick="buyFood('시원한 잣 식혜', 15, '🥛')" class="sketch-btn p-3 flex items-center gap-3 text-left hover:bg-amber-50">
+                    <span class="text-3xl">🥛</span>
+                    <div>
+                        <div class="text-xs font-bold">시원한 잣 식혜</div>
+                        <div class="text-[11px] text-amber-700 font-bold">포만감 +15%</div>
+                    </div>
+                </button>
+                <button onclick="buyFood('수제 곶감 호두말이', 30, '🍪')" class="sketch-btn p-3 flex items-center gap-3 text-left hover:bg-amber-50">
+                    <span class="text-3xl">🍪</span>
+                    <div>
+                        <div class="text-xs font-bold">곶감 호두말이</div>
+                        <div class="text-[11px] text-amber-700 font-bold">포만감 +30%</div>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. 실시간 방명록 / 필사 기록 모달 -->
+    <div id="board-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-40 hidden">
+        <div class="sketch-box max-w-lg w-full p-6 flex flex-col gap-3 max-h-[85vh]">
+            <div class="flex justify-between items-center border-b-2 border-stone-800 pb-2">
+                <h2 class="text-xl font-bold">📜 고택 명예의 방명록 (실시간 연동)</h2>
+                <button onclick="closeModals()" class="sketch-btn px-2.5 py-1 text-xs font-bold">닫기</button>
+            </div>
+            <p class="text-xs text-stone-600">대청마루 손글씨 필사 기록과 방문객들의 방명록이 모든 참가자에게 실시간으로 공유됩니다.</p>
+
+            <!-- 방명록 바로 글 남기기 폼 -->
+            <form id="guestbook-quick-form" class="flex gap-1.5">
+                <input type="text" id="guestbook-quick-input" maxlength="60" placeholder="고택을 둘러본 소감이나 안부를 방명록에 남겨보세요..." class="sketch-box flex-1 px-3 py-2 text-xs focus:outline-none">
+                <button type="submit" class="sketch-btn sketch-btn-primary px-3.5 py-2 text-xs font-bold whitespace-nowrap">방명록 등록</button>
+            </form>
+
+            <div id="guestbook-list" class="flex-1 overflow-y-auto flex flex-col gap-2 pr-1 min-h-[200px]">
+                <div class="text-center text-xs text-stone-400 py-8">기록을 불러오는 중입니다...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 6. 관리위원 호패 검사 모달 -->
+    <div id="inspector-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-40 hidden">
+        <div class="sketch-box max-w-md w-full p-6 flex flex-col gap-4">
+            <div class="flex justify-between items-center border-b-2 border-stone-800 pb-2">
+                <h2 class="text-xl font-bold">🪪 관리위원: 호패(신분패) 검문</h2>
+                <button onclick="closeModals()" class="sketch-btn px-2.5 py-1 text-xs font-bold">닫기</button>
+            </div>
+            <p class="text-xs text-stone-600">"잠깐 멈추시오! 고택과 전각에 들기 전 지니고 있는 호패를 제시하여 신분을 밝히시오."</p>
+
+            <!-- 나무 호패 디자인 카드 -->
+            <div class="bg-[#e8cfa6] border-2 border-stone-900 rounded-xl p-4 mx-auto w-56 shadow-md flex flex-col items-center gap-2 relative">
+                <div class="w-3 h-3 rounded-full bg-stone-900 mb-1"></div>
+                <div class="text-[11px] font-bold tracking-widest text-stone-700 border-b border-stone-700 pb-1 w-full text-center">고택 출입 호패</div>
+                <div id="hopae-card-name" class="text-2xl font-bold text-stone-900 py-1">숲길 나그네</div>
+                <div id="hopae-card-id" class="text-[10px] font-mono text-stone-700">번호: 0000-0000</div>
+                <div id="hopae-card-stamp" class="mt-1 px-2.5 py-0.5 border-2 border-red-700 text-red-700 font-bold text-xs rounded rotate-[-4deg] hidden">
+                    관아 확인 필(畢)
+                </div>
+            </div>
+
+            <button onclick="verifyHopae()" class="sketch-btn sketch-btn-primary py-3 font-bold text-sm">
+                🪪 관리위원에게 호패 제시하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 7. 임금님(왕) 알현 모달 -->
+    <div id="king-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-40 hidden">
+        <div class="sketch-box max-w-md w-full p-6 flex flex-col gap-4 text-center">
+            <div class="flex justify-between items-center border-b-2 border-stone-800 pb-2">
+                <h2 class="text-xl font-bold">👑 주상 전하 알현</h2>
+                <button onclick="closeModals()" class="sketch-btn px-2.5 py-1 text-xs font-bold">물러나기</button>
+            </div>
+            <div class="text-4xl">👑</div>
+            <p id="king-speech" class="text-sm font-bold text-stone-800 bg-amber-50 border border-stone-800 rounded-lg p-4 leading-relaxed">
+                "과인이 이 고요한 터에서 백성들의 학문과 휴식을 살피고 있노라. 글을 읽고 차를 나누며 평안히 머물다 가거라."
+            </p>
+            <button onclick="receiveRoyalBlessing()" class="sketch-btn sketch-btn-primary py-3 font-bold text-sm">
+                🙇 어명 받들기 (다기 및 기력 회복)
+            </button>
+        </div>
+    </div>
+
+    <!-- 8. 전통 저잣거리(시장) 모달 -->
+    <div id="market-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-40 hidden">
+        <div class="sketch-box max-w-md w-full p-6 flex flex-col gap-4">
+            <div class="flex justify-between items-center border-b-2 border-stone-800 pb-2">
+                <h2 class="text-xl font-bold">🏮 전통 저잣거리 (장터 좌판)</h2>
+                <button onclick="closeModals()" class="sketch-btn px-2.5 py-1 text-xs font-bold">장터 나가기</button>
+            </div>
+            <p class="text-xs text-stone-600">"어서 오시오! 방금 솥에서 끓여낸 따끈한 장터 국밥과 쫄깃한 떡이 준비되어 있소!"</p>
+
+            <div class="grid grid-cols-2 gap-2.5">
+                <button onclick="buyFood('장터 가마솥 국밥', 55, '🍲')" class="sketch-btn p-3 flex items-center gap-3 text-left hover:bg-amber-50">
+                    <span class="text-3xl">🍲</span>
+                    <div>
+                        <div class="text-xs font-bold">가마솥 장터국밥</div>
+                        <div class="text-[11px] text-amber-700 font-bold">포만감 +55%</div>
+                    </div>
+                </button>
+                <button onclick="buyFood('콩고물 인절미 떡', 30, '🍡')" class="sketch-btn p-3 flex items-center gap-3 text-left hover:bg-amber-50">
+                    <span class="text-3xl">🍡</span>
+                    <div>
+                        <div class="text-xs font-bold">콩고물 인절미</div>
+                        <div class="text-[11px] text-amber-700 font-bold">포만감 +30%</div>
+                    </div>
+                </button>
+                <button onclick="buyFood('노릇노릇 파전', 40, '🥞')" class="sketch-btn p-3 flex items-center gap-3 text-left hover:bg-amber-50">
+                    <span class="text-3xl">🥞</span>
+                    <div>
+                        <div class="text-xs font-bold">노릇노릇 파전</div>
+                        <div class="text-[11px] text-amber-700 font-bold">포만감 +40%</div>
+                    </div>
+                </button>
+                <button onclick="buyFood('달콤한 꿀약과', 20, '🥮')" class="sketch-btn p-3 flex items-center gap-3 text-left hover:bg-amber-50">
+                    <span class="text-3xl">🥮</span>
+                    <div>
+                        <div class="text-xs font-bold">달콤한 꿀약과</div>
+                        <div class="text-[11px] text-amber-700 font-bold">포만감 +20%</div>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK & 메인 게임 로직 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, addDoc, onSnapshot, collection, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // 1. 전역 상태 및 Firebase 초기화 설정
+        // ==========================================
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'gyeongbokgung-sketch-3d';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+        let app = null, db = null, auth = null;
+        let currentUser = null;
+        let myNickname = "숲길 나그네";
+        let isGameStarted = false;
+
+        // 플레이어 상태
+        const playerState = {
+            x: 0,
+            z: 28,
+            rotY: Math.PI,
+            hunger: 80,
+            energy: 60,
+            hopaeVerified: false,
+            bubble: "",
+            bubbleTime: 0,
+            isMoving: false,
+            isSitting: false,
+            seatPos: null,
+            heldFood: null // { name, hungerGain, emoji }
+        };
+
+        // 다른 참가자들 맵 (uid -> { avatarObj, mesh, labelEl, targetX, targetZ, targetRotY, data })
+        const remotePlayers = new Map();
+        const labelsContainer = document.getElementById('labels-container');
+
+        // 시점 모드 ('first': 1인칭 사람 눈 뷰, 'third': 3인칭 뷰)
+        let cameraMode = 'first';
+        let cameraPitch = -0.04;
+
+        // ==========================================
+        // 2. Three.js 3D 스케치 스타일 월드 구축
+        // ==========================================
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xeef1ec);
+        scene.fog = new THREE.FogExp2(0xeef1ec, 0.009);
+
+        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 300);
+        camera.position.set(0, 1.66, 28);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        container.appendChild(renderer.domElement);
+
+        // 스케치 느낌을 위한 은은한 조명
+        const ambientLight = new THREE.AmbientLight(0xfffdf8, 0.88);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfff6e5, 0.55);
+        dirLight.position.set(25, 45, 20);
+        scene.add(dirLight);
+
+        // 스케치 스타일 메쉬 생성 헬퍼 (툰 재질 + 잉크 외곽선)
+        function createSketchMesh(geometry, colorHex, addEdges = true, edgeThreshold = 15) {
+            const material = new THREE.MeshToonMaterial({ color: colorHex });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            if (addEdges) {
+                const edges = new THREE.EdgesGeometry(geometry, edgeThreshold);
+                const lineMat = new THREE.LineBasicMaterial({ color: 0x222222, linewidth: 1.5 });
+                const lineSegments = new THREE.LineSegments(edges, lineMat);
+                mesh.add(lineSegments);
+            }
+            return mesh;
+        }
+
+        // 0) 바닥 지형 (한지 마사토 마당 + 징검돌길 + 푸른 솔숲 잔디)
+        function buildGround() {
+            const groundGeo = new THREE.PlaneGeometry(180, 180);
+            const groundMat = new THREE.MeshToonMaterial({ color: 0xe7e3d6 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            const grassGeo = new THREE.RingGeometry(36, 90, 32);
+            const grassMat = new THREE.MeshToonMaterial({ color: 0xc8d4be, side: THREE.DoubleSide });
+            const grass = new THREE.Mesh(grassGeo, grassMat);
+            grass.rotation.x = -Math.PI / 2;
+            grass.position.y = 0.01;
+            scene.add(grass);
+
+            const pathGeo = new THREE.PlaneGeometry(5.5, 52);
+            const path = createSketchMesh(pathGeo, 0xd1cdc0, true);
+            path.rotation.x = -Math.PI / 2;
+            path.position.set(0, 0.02, 8);
+            scene.add(path);
+
+            for (let x = -30; x <= 30; x += 2.6) {
+                const stone = createSketchMesh(new THREE.CylinderGeometry(0.65, 0.75, 0.08, 7), 0xbdb9ae);
+                stone.position.set(x, 0.04, 2 + Math.sin(x * 0.4) * 0.5);
+                scene.add(stone);
+            }
+        }
+
+        // 수묵 산수화 배경 산봉우리
+        function buildMountainBackdrop() {
+            const mountainConfigs = [
+                { x: 0, z: -72, r: 34, h: 32, color: 0xc2cbc2 },
+                { x: -45, z: -65, r: 30, h: 26, color: 0xcbd3ca },
+                { x: 48, z: -68, r: 32, h: 28, color: 0xcbd3ca },
+                { x: -75, z: -15, r: 28, h: 24, color: 0xd3dbd2 },
+                { x: 75, z: -10, r: 28, h: 25, color: 0xd3dbd2 },
+                { x: -65, z: 55, r: 30, h: 22, color: 0xd8dfd6 },
+                { x: 65, z: 58, r: 30, h: 23, color: 0xd8dfd6 }
+            ];
+
+            mountainConfigs.forEach(m => {
+                const peak = createSketchMesh(new THREE.ConeGeometry(m.r, m.h, 7), m.color, true, 25);
+                peak.position.set(m.x, m.h / 2 - 1, m.z);
+                peak.rotation.y = m.x * 0.1;
+                scene.add(peak);
+            });
+        }
+
+        // 4) 숲길 입구 편의점 (1호점: 동남쪽, 2호점: 서남쪽) - 문 열고 들어가는 내부 + 야외 테이블 좌석
+        const storeDoors = [];
+        const outdoorSeatSpots = [];
+
+        function buildConvenienceStore(posX = 22, posZ = 26, rotY = 0, storeNum = 1) {
+            const storeGroup = new THREE.Group();
+            storeGroup.position.set(posX, 0, posZ);
+            storeGroup.rotation.y = rotY;
+
+            // 바닥 타일
+            const floor = createSketchMesh(new THREE.BoxGeometry(9.2, 0.12, 7.2), 0xedeae2);
+            floor.position.set(0, 0.06, 0);
+            storeGroup.add(floor);
+
+            // 뒷벽, 좌벽, 우벽 (내부 진입 가능)
+            const backWall = createSketchMesh(new THREE.BoxGeometry(9.0, 4.1, 0.3), 0xf7f4ec);
+            backWall.position.set(0, 2.05, -3.35);
+            const leftWall = createSketchMesh(new THREE.BoxGeometry(0.3, 4.1, 7.0), 0xf7f4ec);
+            leftWall.position.set(-4.35, 2.05, 0);
+            const rightWall = createSketchMesh(new THREE.BoxGeometry(0.3, 4.1, 7.0), 0xf7f4ec);
+            rightWall.position.set(4.35, 2.05, 0);
+            storeGroup.add(backWall, leftWall, rightWall);
+
+            // 앞면 좌우 유리벽 (가운데 출입문 공간 2.4m 개방)
+            const frontGlassL = createSketchMesh(new THREE.BoxGeometry(3.1, 3.2, 0.18), 0xd8ebe8);
+            frontGlassL.position.set(-2.8, 1.6, 3.4);
+            const frontGlassR = createSketchMesh(new THREE.BoxGeometry(3.1, 3.2, 0.18), 0xd8ebe8);
+            frontGlassR.position.set(2.8, 1.6, 3.4);
+            const frontHeader = createSketchMesh(new THREE.BoxGeometry(9.0, 0.9, 0.3), 0xf7f4ec);
+            frontHeader.position.set(0, 3.65, 3.35);
+            storeGroup.add(frontGlassL, frontGlassR, frontHeader);
+
+            // 여닫이/슬라이딩 유리 출입문 (좌우 2짝)
+            const doorL = createSketchMesh(new THREE.BoxGeometry(1.25, 3.0, 0.12), 0xbfe3de);
+            doorL.position.set(-0.62, 1.5, 3.42);
+            const doorR = createSketchMesh(new THREE.BoxGeometry(1.25, 3.0, 0.12), 0xbfe3de);
+            doorR.position.set(0.62, 1.5, 3.42);
+            storeGroup.add(doorL, doorR);
+
+            // 월드 좌표 기준 문 위치 저장 (자동 개폐용)
+            const doorWorldPos = new THREE.Vector3(0, 0, 3.42).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY).add(new THREE.Vector3(posX, 0, posZ));
+            storeDoors.push({
+                doorL,
+                doorR,
+                worldX: doorWorldPos.x,
+                worldZ: doorWorldPos.z,
+                openAmount: 0,
+                manualOpen: false
+            });
+
+            // 지붕 & 간판 띠
+            const roof = createKoreanRoof(10.6, 2.0, 8.4, 0x3e454b);
+            roof.position.set(0, 4.1, 0);
+            storeGroup.add(roof);
+
+            const signBand = createSketchMesh(new THREE.BoxGeometry(9.15, 0.85, 7.15), 0x3b6e52);
+            signBand.position.set(0, 3.7, 0);
+            storeGroup.add(signBand);
+
+            // 내부 진열대 2줄 (삼각김밥, 컵라면, 음료 진열)
+            [-2.4, 0.5].forEach((sx, idx) => {
+                const shelf = createSketchMesh(new THREE.BoxGeometry(2.2, 1.9, 0.7), 0xdfd8ca);
+                shelf.position.set(sx, 0.95, -2.2);
+                storeGroup.add(shelf);
+
+                // 진열 상품 소품들
+                for (let row = 0; row < 2; row++) {
+                    for (let col = -2; col <= 2; col++) {
+                        const itemBox = createSketchMesh(
+                            new THREE.BoxGeometry(0.28, 0.25, 0.28),
+                            (col + row + idx) % 2 === 0 ? 0xe89b48 : 0x5c946e
+                        );
+                        itemBox.position.set(sx + col * 0.38, 1.15 + row * 0.55, -2.05);
+                        storeGroup.add(itemBox);
+                    }
+                }
+            });
+
+            // 내부 계산대 카운터
+            const counter = createSketchMesh(new THREE.BoxGeometry(2.1, 1.0, 0.9), 0x7d583a);
+            counter.position.set(2.9, 0.5, -1.2);
+            storeGroup.add(counter);
+
+            // 야외 파라솔 테이블 & 의자 2개
+            const tableX = -2.6;
+            const tableZ = 5.4;
+            const tableTop = createSketchMesh(new THREE.CylinderGeometry(1.15, 1.15, 0.1, 16), 0xf4efe6);
+            tableTop.position.set(tableX, 0.78, tableZ);
+            const tableLeg = createSketchMesh(new THREE.CylinderGeometry(0.12, 0.18, 0.75, 10), 0x555555);
+            tableLeg.position.set(tableX, 0.38, tableZ);
+            storeGroup.add(tableTop, tableLeg);
+
+            // 의자 2개 (좌/우)
+            const chairL = createSketchMesh(new THREE.BoxGeometry(0.65, 0.45, 0.65), 0xb88e63);
+            chairL.position.set(tableX - 1.35, 0.225, tableZ);
+            const chairR = createSketchMesh(new THREE.BoxGeometry(0.65, 0.45, 0.65), 0xb88e63);
+            chairR.position.set(tableX + 1.35, 0.225, tableZ);
+            storeGroup.add(chairL, chairR);
+
+            // 테이블 위 음식 놓이는 자리 월드 좌표 등록
+            const seatWorldPos = new THREE.Vector3(tableX - 1.35, 0, tableZ)
+                .applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY)
+                .add(new THREE.Vector3(posX, 0, posZ));
+            const tableWorldPos = new THREE.Vector3(tableX, 0.85, tableZ)
+                .applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY)
+                .add(new THREE.Vector3(posX, 0, posZ));
+
+            outdoorSeatSpots.push({
+                id: `table${storeNum}`,
+                name: `편의점 ${storeNum}호점 야외 파라솔 테이블`,
+                seatX: seatWorldPos.x,
+                seatZ: seatWorldPos.z,
+                faceYaw: rotY + Math.PI / 2,
+                tableX: tableWorldPos.x,
+                tableY: tableWorldPos.y,
+                tableZ: tableWorldPos.z
+            });
+
+            // 편의점 야외 파라솔 기둥 및 갓
+            const parasolPole = createSketchMesh(new THREE.CylinderGeometry(0.07, 0.07, 2.7, 8), 0x444444);
+            parasolPole.position.set(tableX, 1.35, tableZ);
+            const parasolTop = createSketchMesh(new THREE.ConeGeometry(1.9, 0.75, 8), 0x4e8a6b);
+            parasolTop.position.set(tableX, 2.8, tableZ);
+            storeGroup.add(parasolPole, parasolTop);
+
+            scene.add(storeGroup);
+        }
+
+        // 5) 대규모 전통 저잣거리(시장)
+        function buildTraditionalMarket() {
+            const marketGroup = new THREE.Group();
+            marketGroup.position.set(24, 0, 2);
+
+            // 넓게 깔린 장터 흙바닥 & 돌길
+            const marketFloor = createSketchMesh(new THREE.BoxGeometry(22, 0.08, 28), 0xd9d2c3);
+            marketFloor.position.y = 0.04;
+            marketGroup.add(marketFloor);
+
+            // 양쪽으로 마주 보며 늘어선 8개 장터 좌판
+            const stallConfigs = [
+                { x: -6.5, z: -9.5, rot: Math.PI / 2, clothColor: 0xd96b43 },
+                { x: -6.5, z: -3.2, rot: Math.PI / 2, clothColor: 0x4b779e },
+                { x: -6.5, z: 3.2,  rot: Math.PI / 2, clothColor: 0xc98a3e },
+                { x: -6.5, z: 9.5,  rot: Math.PI / 2, clothColor: 0x628c58 },
+                { x: 6.5,  z: -9.5, rot: -Math.PI / 2, clothColor: 0x5c7a99 },
+                { x: 6.5,  z: -3.2, rot: -Math.PI / 2, clothColor: 0xb85c48 },
+                { x: 6.5,  z: 3.2,  rot: -Math.PI / 2, clothColor: 0x558259 },
+                { x: 6.5,  z: 9.5,  rot: -Math.PI / 2, clothColor: 0xd49642 }
+            ];
+
+            stallConfigs.forEach((st, idx) => {
+                const stall = new THREE.Group();
+                stall.position.set(st.x, 0, st.z);
+                stall.rotation.y = st.rot;
+
+                const table = createSketchMesh(new THREE.BoxGeometry(4.6, 0.85, 1.9), 0x8c5a32);
+                table.position.y = 0.425;
+                stall.add(table);
+
+                [-1.4, 0, 1.4].forEach((bx, i) => {
+                    const basket = createSketchMesh(new THREE.CylinderGeometry(0.48, 0.36, 0.28, 10), (i + idx) % 2 === 0 ? 0xe8b954 : 0xc96a53);
+                    basket.position.set(bx, 0.99, 0);
+                    stall.add(basket);
+                });
+
+                [[-2.1, -0.85], [2.1, -0.85], [-2.1, 0.85], [2.1, 0.85]].forEach(([px, pz]) => {
+                    const pole = createSketchMesh(new THREE.CylinderGeometry(0.08, 0.08, 2.8, 8), 0x5c3a21);
+                    pole.position.set(px, 1.4, pz);
+                    stall.add(pole);
+                });
+
+                const awning = createSketchMesh(new THREE.BoxGeometry(5.0, 0.14, 2.7), st.clothColor);
+                awning.position.set(0, 2.82, 0.15);
+                awning.rotation.x = 0.14;
+                stall.add(awning);
+
+                marketGroup.add(stall);
+            });
+
+            // 장터 중앙 대형 가마솥 2기
+            [-3.5, 4.5].forEach(cz => {
+                const furnace = createSketchMesh(new THREE.CylinderGeometry(1.1, 1.25, 0.8, 12), 0x9c988e);
+                furnace.position.set(0, 0.4, cz);
+                const cauldron = createSketchMesh(new THREE.SphereGeometry(0.95, 14, 12, 0, Math.PI * 2, Math.PI * 0.45, Math.PI * 0.55), 0x262626);
+                cauldron.position.set(0, 1.15, cz);
+                marketGroup.add(furnace, cauldron);
+            });
+
+            // 손님용 장터 평상 3곳
+            [[-2.5, -6.5], [2.5, 0.5], [-2.5, 7.5]].forEach(([bx, bz]) => {
+                const bench = createSketchMesh(new THREE.BoxGeometry(2.8, 0.5, 1.8), 0xb88e63);
+                bench.position.set(bx, 0.25, bz);
+                marketGroup.add(bench);
+            });
+
+            scene.add(marketGroup);
+        }
+
+        // 6) 소나무 & 단풍나무 조경
+        function buildTrees() {
+            const treePositions = [
+                [-12, 24], [12, 24], [-32, 12], [38, 12],
+                [-14, -10], [14, -10], [-22, -22], [22, -22],
+                [-12, -32], [12, -32], [-28, -5], [38, -8],
+                [-34, 18], [38, 18], [-32, 34], [15, 36]
+            ];
+
+            treePositions.forEach(([x, z], idx) => {
+                const tree = new THREE.Group();
+                tree.position.set(x, 0, z);
+
+                const trunk = createSketchMesh(new THREE.CylinderGeometry(0.24, 0.38, 3.1, 8), 0x634530);
+                trunk.position.y = 1.55;
+                tree.add(trunk);
+
+                const leafColor1 = idx % 4 === 0 ? 0xb86b35 : 0x487042;
+                const leafColor2 = idx % 4 === 0 ? 0xc97d42 : 0x56824e;
+
+                const leaves1 = createSketchMesh(new THREE.DodecahedronGeometry(1.75, 1), leafColor1);
+                leaves1.position.set(0, 3.4, 0);
+                tree.add(leaves1);
+
+                const leaves2 = createSketchMesh(new THREE.DodecahedronGeometry(1.2, 1), leafColor2);
+                leaves2.position.set(0.75, 4.0, 0.3);
+                tree.add(leaves2);
+
+                scene.add(tree);
+            });
+        }
+
+        // 전통 팔작지붕 생성 헬퍼
+        function createKoreanRoof(width, height, depth, colorHex = 0x454c52) {
+            const roofGroup = new THREE.Group();
+
+            const lowerGeo = new THREE.ConeGeometry(Math.max(width, depth) * 0.75, height, 4);
+            const lowerMesh = createSketchMesh(lowerGeo, colorHex, true);
+            lowerMesh.rotation.y = Math.PI / 4;
+            lowerMesh.scale.set(width / Math.max(width, depth), 1, depth / Math.max(width, depth));
+            lowerMesh.position.y = height / 2;
+            roofGroup.add(lowerMesh);
+
+            const ridgeGeo = new THREE.BoxGeometry(width * 0.55, height * 0.22, depth * 0.15);
+            const ridgeMesh = createSketchMesh(ridgeGeo, 0x2a2e33, true);
+            ridgeMesh.position.y = height * 0.95;
+            roofGroup.add(ridgeMesh);
+
+            return roofGroup;
+        }
+
+        // 1) 정문 & 돌담길
+        function buildIljumunGate() {
+            const gateGroup = new THREE.Group();
+            gateGroup.position.set(0, 0, 18);
+
+            const pillarL = createSketchMesh(new THREE.CylinderGeometry(0.42, 0.48, 5.2, 12), 0x8f4738);
+            pillarL.position.set(-2.6, 2.6, 0);
+            gateGroup.add(pillarL);
+
+            const pillarR = createSketchMesh(new THREE.CylinderGeometry(0.42, 0.48, 5.2, 12), 0x8f4738);
+            pillarR.position.set(2.6, 2.6, 0);
+            gateGroup.add(pillarR);
+
+            const baseL = createSketchMesh(new THREE.CylinderGeometry(0.65, 0.75, 0.5, 10), 0xbdb9ae);
+            baseL.position.set(-2.6, 0.25, 0);
+            const baseR = createSketchMesh(new THREE.CylinderGeometry(0.65, 0.75, 0.5, 10), 0xbdb9ae);
+            baseR.position.set(2.6, 0.25, 0);
+            gateGroup.add(baseL, baseR);
+
+            const beam = createSketchMesh(new THREE.BoxGeometry(7.2, 1.1, 1.2), 0x4b6b58);
+            beam.position.set(0, 5.4, 0);
+            gateGroup.add(beam);
+
+            const roof = createKoreanRoof(9.5, 2.2, 3.8, 0x3e454b);
+            roof.position.set(0, 5.9, 0);
+            gateGroup.add(roof);
+
+            const plaque = createSketchMesh(new THREE.BoxGeometry(1.4, 1.8, 0.25), 0x262626);
+            plaque.position.set(0, 5.2, 0.7);
+            gateGroup.add(plaque);
+
+            const stoneWallL = createSketchMesh(new THREE.BoxGeometry(22, 1.4, 0.9), 0xcac6ba);
+            stoneWallL.position.set(-15, 0.7, 0);
+            const stoneWallR = createSketchMesh(new THREE.BoxGeometry(22, 1.4, 0.9), 0xcac6ba);
+            stoneWallR.position.set(15, 0.7, 0);
+            gateGroup.add(stoneWallL, stoneWallR);
+
+            scene.add(gateGroup);
+        }
+
+        // 2) 중심 전각 & 대청마루 (용상 + 필사 서안)
+        function buildMainHall() {
+            const hallGroup = new THREE.Group();
+            hallGroup.position.set(0, 0, -18);
+
+            // 2단 석축 기단
+            const lowerBase = createSketchMesh(new THREE.BoxGeometry(26, 0.9, 20), 0xc9c5b9);
+            lowerBase.position.set(0, 0.45, 0);
+            hallGroup.add(lowerBase);
+
+            const upperBase = createSketchMesh(new THREE.BoxGeometry(21, 0.9, 15.5), 0xdad6ca);
+            upperBase.position.set(0, 1.35, 0);
+            hallGroup.add(upperBase);
+
+            // 중앙 돌계단
+            const stairs = createSketchMesh(new THREE.BoxGeometry(4.6, 1.8, 4.5), 0xc4c0b4);
+            stairs.position.set(0, 0.9, 9.5);
+            hallGroup.add(stairs);
+
+            // 배흘림 기둥
+            const pillarPositions = [
+                [-7.5, -4.8], [-3.75, -4.8], [0, -4.8], [3.75, -4.8], [7.5, -4.8],
+                [-7.5, 0], [7.5, 0],
+                [-7.5, 4.8], [-3.75, 4.8], [3.75, 4.8], [7.5, 4.8]
+            ];
+            pillarPositions.forEach(([px, pz]) => {
+                const pillar = createSketchMesh(new THREE.CylinderGeometry(0.4, 0.44, 6.2, 12), 0x994839);
+                pillar.position.set(px, 4.9, pz);
+                hallGroup.add(pillar);
+            });
+
+            // 뒷벽 및 일월오봉도 병풍 느낌 장식
+            const backWall = createSketchMesh(new THREE.BoxGeometry(15.5, 6.2, 0.45), 0xe3ded2);
+            backWall.position.set(0, 4.9, -4.95);
+            hallGroup.add(backWall);
+
+            // 왕의 용상 단상 (우측 편)
+            const throneStage = createSketchMesh(new THREE.BoxGeometry(4.2, 0.6, 3.0), 0x7d3b2e);
+            throneStage.position.set(2.5, 2.1, -2.2);
+            hallGroup.add(throneStage);
+
+            const foldingScreen = createSketchMesh(new THREE.BoxGeometry(4.0, 2.4, 0.2), 0x2d4f6e);
+            foldingScreen.position.set(2.5, 3.5, -3.5);
+            hallGroup.add(foldingScreen);
+
+            // 대청마루 필사 서안(책상) & 한지 두루마리 (좌측 편)
+            const desk = createSketchMesh(new THREE.BoxGeometry(3.0, 0.85, 1.4), 0x6b4226);
+            desk.position.set(-3.2, 2.22, 1.2);
+            hallGroup.add(desk);
+
+            const scrollPaper = createSketchMesh(new THREE.BoxGeometry(1.7, 0.08, 0.9), 0xfffdf7);
+            scrollPaper.position.set(-3.2, 2.68, 1.2);
+            hallGroup.add(scrollPaper);
+
+            const inkStone = createSketchMesh(new THREE.BoxGeometry(0.35, 0.1, 0.5), 0x222222);
+            inkStone.position.set(-2.6, 2.7, 1.1);
+            hallGroup.add(inkStone);
+
+            // 천장 & 지붕
+            const ceiling = createSketchMesh(new THREE.BoxGeometry(15.2, 0.4, 9.8), 0x3f6b58);
+            ceiling.position.set(0, 7.9, 0);
+            hallGroup.add(ceiling);
+
+            const mainRoof = createKoreanRoof(20.5, 3.4, 13.5, 0x3b4248);
+            mainRoof.position.set(0, 8.1, 0);
+            hallGroup.add(mainRoof);
+
+            scene.add(hallGroup);
+            buildCourtyardDecor();
+        }
+
+        function buildCourtyardDecor() {
+            // 앞마당 석탑
+            const pagoda = new THREE.Group();
+            pagoda.position.set(-6.5, 0, -4);
+
+            const pBase = createSketchMesh(new THREE.BoxGeometry(2.6, 0.8, 2.6), 0xc7c3b8);
+            pBase.position.y = 0.4;
+            pagoda.add(pBase);
+
+            const tiers = [
+                { y: 1.3, w: 1.5, h: 1.0, roofW: 2.3 },
+                { y: 2.4, w: 1.2, h: 0.85, roofW: 1.9 },
+                { y: 3.35, w: 0.9, h: 0.7, roofW: 1.5 }
+            ];
+            tiers.forEach(t => {
+                const body = createSketchMesh(new THREE.BoxGeometry(t.w, t.h, t.w), 0xd4d0c5);
+                body.position.y = t.y;
+                const roof = createSketchMesh(new THREE.ConeGeometry(t.roofW * 0.7, 0.45, 4), 0xbdb9ae);
+                roof.rotation.y = Math.PI / 4;
+                roof.position.y = t.y + t.h * 0.5 + 0.15;
+                pagoda.add(body, roof);
+            });
+            const finial = createSketchMesh(new THREE.CylinderGeometry(0.08, 0.2, 0.7, 8), 0xbdb9ae);
+            finial.position.y = 4.2;
+            pagoda.add(finial);
+            scene.add(pagoda);
+
+            // 정자 종각
+            const bellPavilion = new THREE.Group();
+            bellPavilion.position.set(8.5, 0, -4);
+            const bFloor = createSketchMesh(new THREE.BoxGeometry(4.2, 0.5, 4.2), 0xc7c3b8);
+            bFloor.position.y = 0.25;
+            bellPavilion.add(bFloor);
+
+            [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]].forEach(([x, z]) => {
+                const col = createSketchMesh(new THREE.CylinderGeometry(0.2, 0.22, 3.4, 10), 0x8f4738);
+                col.position.set(x, 2.1, z);
+                bellPavilion.add(col);
+            });
+            const bRoof = createKoreanRoof(5.8, 1.8, 5.8, 0x3e454b);
+            bRoof.position.y = 3.7;
+            bellPavilion.add(bRoof);
+
+            const bell = createSketchMesh(new THREE.CylinderGeometry(0.45, 0.65, 1.3, 14), 0x5c665e);
+            bell.position.y = 2.4;
+            bellPavilion.add(bell);
+            scene.add(bellPavilion);
+
+            // 돌석등 2기
+            [-3.2, 3.2].forEach(lx => {
+                const lantern = new THREE.Group();
+                lantern.position.set(lx, 0, -6.5);
+                const stem = createSketchMesh(new THREE.CylinderGeometry(0.2, 0.3, 1.5, 8), 0xc7c3b8);
+                stem.position.y = 0.75;
+                const fireBox = createSketchMesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), 0xfff3c4);
+                fireBox.position.y = 1.75;
+                const cap = createSketchMesh(new THREE.ConeGeometry(0.65, 0.45, 4), 0xb5b1a6);
+                cap.rotation.y = Math.PI / 4;
+                cap.position.y = 2.2;
+                lantern.add(stem, fireBox, cap);
+                scene.add(lantern);
+            });
+        }
+
+        // 3) 전통 다실 정자 (차 끓이는 곳)
+        function buildTeaPavilion() {
+            const teaGroup = new THREE.Group();
+            teaGroup.position.set(-18, 0, 2);
+
+            const pond = createSketchMesh(new THREE.CylinderGeometry(7.2, 7.2, 0.14, 24), 0x9ebdc2);
+            pond.position.set(-3, 0.07, -4);
+            teaGroup.add(pond);
+
+            [[-2, -3], [-4.5, -5], [-1.5, -6]].forEach(([lx, lz]) => {
+                const leaf = createSketchMesh(new THREE.CylinderGeometry(0.65, 0.65, 0.05, 12), 0x568259);
+                leaf.position.set(lx, 0.16, lz);
+                const flower = createSketchMesh(new THREE.ConeGeometry(0.25, 0.3, 8), 0xf2b8c6);
+                flower.position.set(lx, 0.3, lz);
+                teaGroup.add(leaf, flower);
+            });
+
+            const floor = createSketchMesh(new THREE.BoxGeometry(7, 0.65, 7), 0xb88e63);
+            floor.position.set(0, 0.325, 0);
+            teaGroup.add(floor);
+
+            [[-2.8, -2.8], [2.8, -2.8], [-2.8, 2.8], [2.8, 2.8]].forEach(([x, z]) => {
+                const col = createSketchMesh(new THREE.CylinderGeometry(0.23, 0.24, 4.1, 10), 0x7d4e34);
+                col.position.set(x, 2.7, z);
+                teaGroup.add(col);
+            });
+
+            const roof = createKoreanRoof(9.2, 2.3, 9.2, 0x454d54);
+            roof.position.set(0, 4.7, 0);
+            teaGroup.add(roof);
+
+            const teaTable = createSketchMesh(new THREE.BoxGeometry(2.2, 0.42, 1.4), 0x54341d);
+            teaTable.position.set(0, 0.86, 0);
+            teaGroup.add(teaTable);
+
+            const kettle = createSketchMesh(new THREE.SphereGeometry(0.32, 12, 12), 0x2a2f32);
+            kettle.position.set(0, 1.28, 0);
+            teaGroup.add(kettle);
+
+            for (let i = 0; i < 14; i++) {
+                const bx = -5.5 + (i % 7) * 1.6 + Math.sin(i) * 0.3;
+                const bz = -4.2 - Math.floor(i / 7) * 1.4;
+                const bh = 5.5 + (i % 3) * 1.2;
+                const bamboo = createSketchMesh(new THREE.CylinderGeometry(0.11, 0.13, bh, 8), 0x5c8a58);
+                bamboo.position.set(bx, bh / 2, bz);
+                teaGroup.add(bamboo);
+            }
+
+            scene.add(teaGroup);
+        }
+
+        // 실제 사람 비율의 관절형 3D 캐릭터 생성 함수
+        function createHumanAvatar(isSelf = false, role = 'citizen') {
+            const root = new THREE.Group();
+
+            const skinColor = 0xf5d6ba;
+            let robeColor = isSelf ? 0xf8f5ec : 0xe4edf2;
+            let pantsColor = 0xd8d3c8;
+            let beltColor = isSelf ? 0x28527a : 0x8c4a3e;
+
+            if (role === 'king') {
+                robeColor = 0xb82929;
+                beltColor = 0xe6b83a;
+            } else if (role === 'inspector') {
+                robeColor = 0x243b55;
+                beltColor = 0xd9a841;
+            } else if (role === 'merchant') {
+                robeColor = 0x8a6d46;
+                beltColor = 0x4a3b28;
+            }
+
+            const hipGroup = new THREE.Group();
+            hipGroup.position.y = 0.85;
+            root.add(hipGroup);
+
+            const torso = createSketchMesh(new THREE.BoxGeometry(0.46, 0.56, 0.26), robeColor);
+            torso.position.y = 0.28;
+            hipGroup.add(torso);
+
+            const coatBack = createSketchMesh(new THREE.BoxGeometry(0.48, 0.65, 0.14), robeColor);
+            coatBack.position.set(0, -0.25, -0.08);
+            hipGroup.add(coatBack);
+
+            const belt = createSketchMesh(new THREE.BoxGeometry(0.49, 0.09, 0.29), beltColor);
+            belt.position.y = 0.08;
+            hipGroup.add(belt);
+
+            const neck = createSketchMesh(new THREE.CylinderGeometry(0.08, 0.09, 0.14, 10), skinColor);
+            neck.position.y = 0.62;
+            hipGroup.add(neck);
+
+            const headGroup = new THREE.Group();
+            headGroup.position.y = 0.81;
+            hipGroup.add(headGroup);
+
+            const headMesh = createSketchMesh(new THREE.SphereGeometry(0.16, 16, 16), skinColor, true, 25);
+            headMesh.scale.set(0.92, 1.08, 0.98);
+            headGroup.add(headMesh);
+
+            const hairCap = createSketchMesh(new THREE.SphereGeometry(0.165, 14, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), 0x222222, false);
+            hairCap.position.y = 0.02;
+            headGroup.add(hairCap);
+
+            const eyeGeo = new THREE.SphereGeometry(0.018, 8, 8);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
+            const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+            eyeL.position.set(-0.055, 0.01, 0.145);
+            const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+            eyeR.position.set(0.055, 0.01, 0.145);
+
+            const nose = createSketchMesh(new THREE.BoxGeometry(0.024, 0.045, 0.03), skinColor, true, 20);
+            nose.position.set(0, -0.015, 0.155);
+            headGroup.add(eyeL, eyeR, nose);
+
+            if (role === 'king') {
+                const crown = createSketchMesh(new THREE.CylinderGeometry(0.14, 0.16, 0.24, 14), 0x1f1f1f);
+                crown.position.y = 0.2;
+                const wingL = createSketchMesh(new THREE.BoxGeometry(0.03, 0.14, 0.1), 0x1f1f1f);
+                wingL.position.set(-0.17, 0.22, -0.02);
+                const wingR = createSketchMesh(new THREE.BoxGeometry(0.03, 0.14, 0.1), 0x1f1f1f);
+                wingR.position.set(0.17, 0.22, -0.02);
+                const goldTrim = createSketchMesh(new THREE.BoxGeometry(0.16, 0.06, 0.04), 0xe6b83a);
+                goldTrim.position.set(0, 0.34, 0.14);
+                headGroup.add(crown, wingL, wingR, goldTrim);
+            } else if (role === 'inspector') {
+                const samo = createSketchMesh(new THREE.CylinderGeometry(0.14, 0.16, 0.22, 14), 0x1f1f1f);
+                samo.position.y = 0.19;
+                const wingL = createSketchMesh(new THREE.BoxGeometry(0.14, 0.07, 0.02), 0x1f1f1f);
+                wingL.position.set(-0.2, 0.17, -0.04);
+                const wingR = createSketchMesh(new THREE.BoxGeometry(0.14, 0.07, 0.02), 0x1f1f1f);
+                wingR.position.set(0.2, 0.17, -0.04);
+                headGroup.add(samo, wingL, wingR);
+            } else if (role === 'merchant') {
+                const headband = createSketchMesh(new THREE.CylinderGeometry(0.168, 0.168, 0.06, 16), 0xf4f1ea);
+                headband.position.y = 0.08;
+                headGroup.add(headband);
+            } else {
+                const hatBrim = createSketchMesh(new THREE.CylinderGeometry(0.38, 0.38, 0.02, 20), 0x1f1f1f);
+                hatBrim.position.y = 0.12;
+                const hatCrown = createSketchMesh(new THREE.CylinderGeometry(0.13, 0.15, 0.22, 14), 0x1f1f1f);
+                hatCrown.position.y = 0.23;
+                headGroup.add(hatBrim, hatCrown);
+            }
+
+            function createArm(side) {
+                const shoulder = new THREE.Group();
+                shoulder.position.set(side * 0.31, 0.50, 0);
+
+                const sleeve = createSketchMesh(new THREE.BoxGeometry(0.16, 0.46, 0.18), robeColor);
+                sleeve.position.y = -0.21;
+                shoulder.add(sleeve);
+
+                const hand = createSketchMesh(new THREE.SphereGeometry(0.065, 10, 10), skinColor);
+                hand.position.y = -0.47;
+                shoulder.add(hand);
+
+                hipGroup.add(shoulder);
+                return shoulder;
+            }
+            const leftArm = createArm(-1);
+            const rightArm = createArm(1);
+
+            function createLeg(side) {
+                const hipJoint = new THREE.Group();
+                hipJoint.position.set(side * 0.13, 0, 0);
+
+                const legMesh = createSketchMesh(new THREE.CylinderGeometry(0.11, 0.09, 0.74, 10), pantsColor);
+                legMesh.position.y = -0.37;
+                hipJoint.add(legMesh);
+
+                const shoe = createSketchMesh(new THREE.BoxGeometry(0.13, 0.09, 0.24), 0x2b2b2b);
+                shoe.position.set(0, -0.78, 0.04);
+                hipJoint.add(shoe);
+
+                hipGroup.add(hipJoint);
+                return hipJoint;
+            }
+            const leftLeg = createLeg(-1);
+            const rightLeg = createLeg(1);
+
+            return { root, hipGroup, headGroup, leftArm, rightArm, leftLeg, rightLeg };
+        }
+
+        function animateHumanWalk(avatarObj, isMoving, timeSec, phaseOffset = 0, isSitting = false) {
+            if (isSitting) {
+                // 의자에 앉은 자세 (엉덩이 낮추고 허벅지 앞으로 뻗기)
+                avatarObj.hipGroup.position.y = 0.48;
+                avatarObj.leftLeg.rotation.x = -Math.PI / 2.1;
+                avatarObj.rightLeg.rotation.x = -Math.PI / 2.1;
+                const breath = Math.sin(timeSec * 2.5 + phaseOffset);
+                avatarObj.leftArm.rotation.x = -0.35 + breath * 0.02;
+                avatarObj.rightArm.rotation.x = -0.35 - breath * 0.02;
+                return;
+            }
+
+            if (isMoving) {
+                const swing = Math.sin(timeSec * 10 + phaseOffset);
+                avatarObj.leftLeg.rotation.x = swing * 0.55;
+                avatarObj.rightLeg.rotation.x = -swing * 0.55;
+                avatarObj.leftArm.rotation.x = -swing * 0.45;
+                avatarObj.rightArm.rotation.x = swing * 0.45;
+                avatarObj.hipGroup.position.y = 0.85 + Math.abs(Math.cos(timeSec * 10 + phaseOffset)) * 0.04;
+            } else {
+                const breath = Math.sin(timeSec * 2.5 + phaseOffset);
+                avatarObj.leftLeg.rotation.x *= 0.85;
+                avatarObj.rightLeg.rotation.x *= 0.85;
+                avatarObj.leftArm.rotation.x = breath * 0.03;
+                avatarObj.rightArm.rotation.x = -breath * 0.03;
+                avatarObj.hipGroup.position.y = 0.85 + breath * 0.01;
+            }
+        }
+
+        // 월드 오브젝트 빌드 실행
+        buildGround();
+        buildMountainBackdrop();
+        buildIljumunGate();
+        buildMainHall();
+        buildTeaPavilion();
+        buildConvenienceStore(22, 26, 0, 1);          // 1호점: 동남쪽 숲길 편의점
+        buildConvenienceStore(-22, 24, 0.35, 2);      // 2호점: 서남쪽 다실 앞 편의점
+        buildTraditionalMarket();
+        buildTrees();
+
+        // 테이블 위에 놓이는 3D 음식 오브젝트 (앉아서 먹을 때 테이블 위에 배치됨)
+        const tableFoodMeshGroup = new THREE.Group();
+        tableFoodMeshGroup.visible = false;
+        scene.add(tableFoodMeshGroup);
+
+        // NPC 캐릭터 배치 (왕, 관리위원, 시장 상인들)
+        const npcList = [];
+
+        // 1) 왕 (임금님 - 전각 용상 앞, 높이 2.4m 단상 위)
+        const kingNpc = createHumanAvatar(false, 'king');
+        kingNpc.root.position.set(2.5, 2.4, -19.8);
+        scene.add(kingNpc.root);
+        const kingLabel = document.createElement('div');
+        kingLabel.className = 'player-label';
+        labelsContainer.appendChild(kingLabel);
+        npcList.push({
+            avatarObj: kingNpc,
+            labelEl: kingLabel,
+            name: "👑 주상 전하 (임금님)",
+            bubble: "백성들의 평안과 학문을 살피노라."
+        });
+
+        // 2) 관리위원 (정문 검문소 앞 호패 검사관)
+        const inspectorNpc = createHumanAvatar(false, 'inspector');
+        inspectorNpc.root.position.set(3.4, 0, 20.5);
+        inspectorNpc.root.rotation.y = -0.35;
+        scene.add(inspectorNpc.root);
+        const inspectorLabel = document.createElement('div');
+        inspectorLabel.className = 'player-label';
+        labelsContainer.appendChild(inspectorLabel);
+        npcList.push({
+            avatarObj: inspectorNpc,
+            labelEl: inspectorLabel,
+            name: "🪪 관리위원 (호패 검사)",
+            bubble: "고택에 들기 전 호패를 보여주시오!"
+        });
+
+        // 3) 시장 상인 1 (전통 저잣거리 국밥 주모)
+        const merchantNpc = createHumanAvatar(false, 'merchant');
+        merchantNpc.root.position.set(19.2, 0, -1.2);
+        merchantNpc.root.rotation.y = Math.PI / 2;
+        scene.add(merchantNpc.root);
+        const merchantLabel = document.createElement('div');
+        merchantLabel.className = 'player-label';
+        labelsContainer.appendChild(merchantLabel);
+        npcList.push({
+            avatarObj: merchantNpc,
+            labelEl: merchantLabel,
+            name: "🍲 저잣거리 국밥 주모",
+            bubble: "가마솥에서 갓 끓인 국밥 드시고 가소!"
+        });
+
+        // 4) 시장 상인 2 (전통 저잣거리 떡·파전 상인)
+        const merchantNpc2 = createHumanAvatar(false, 'merchant');
+        merchantNpc2.root.position.set(28.8, 0, 5.2);
+        merchantNpc2.root.rotation.y = -Math.PI / 2;
+        scene.add(merchantNpc2.root);
+        const merchantLabel2 = document.createElement('div');
+        merchantLabel2.className = 'player-label';
+        labelsContainer.appendChild(merchantLabel2);
+        npcList.push({
+            avatarObj: merchantNpc2,
+            labelEl: merchantLabel2,
+            name: "🍡 장터 떡·파전 상인",
+            bubble: "고소한 콩고물 인절미와 파전 있소!"
+        });
+
+        // 내 캐릭터 생성
+        const myAvatarObj = createHumanAvatar(true, 'citizen');
+        const myAvatar = myAvatarObj.root;
+        myAvatar.position.set(playerState.x, 0, playerState.z);
+        scene.add(myAvatar);
+
+        // 1인칭 눈 시점용 전방 손/도포 소매 뷰모델
+        const fpHandsGroup = new THREE.Group();
+        const fpLeftSleeve = createSketchMesh(new THREE.BoxGeometry(0.14, 0.14, 0.35), 0xf8f5ec);
+        fpLeftSleeve.position.set(-0.28, -0.26, -0.35);
+        fpLeftSleeve.rotation.set(0.25, -0.2, 0);
+        const fpLeftHand = createSketchMesh(new THREE.SphereGeometry(0.055, 10, 10), 0xf5d6ba);
+        fpLeftHand.position.set(-0.25, -0.22, -0.52);
+
+        const fpRightSleeve = createSketchMesh(new THREE.BoxGeometry(0.14, 0.14, 0.35), 0xf8f5ec);
+        fpRightSleeve.position.set(0.28, -0.26, -0.35);
+        fpRightSleeve.rotation.set(0.25, 0.2, 0);
+        const fpRightHand = createSketchMesh(new THREE.SphereGeometry(0.055, 10, 10), 0xf5d6ba);
+        fpRightHand.position.set(0.25, -0.22, -0.52);
+
+        fpHandsGroup.add(fpLeftSleeve, fpLeftHand, fpRightSleeve, fpRightHand);
+
+        // 실제 음식 섭취 3D 뷰모델 (오른손에 들리는 음식 오브젝트)
+        const fpFoodGroup = new THREE.Group();
+        fpFoodGroup.position.set(0.25, -0.16, -0.52);
+        fpFoodGroup.visible = false;
+        fpHandsGroup.add(fpFoodGroup);
+
+        camera.add(fpHandsGroup);
+        scene.add(camera);
+
+        // 다실 찻주전자에서 피어오르는 스팀(김) 입자 효과
+        const steamParticles = [];
+        for (let i = 0; i < 10; i++) {
+            const p = new THREE.Mesh(
+                new THREE.SphereGeometry(0.08 + Math.random() * 0.06, 8, 8),
+                new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45 })
+            );
+            p.position.set(-18 + (Math.random() - 0.5) * 0.3, 1.5 + i * 0.22, 2 + (Math.random() - 0.5) * 0.3);
+            p.userData = { offset: i * 0.6 };
+            scene.add(p);
+            steamParticles.push(p);
+        }
+
+        // 내 이름표 DOM 생성
+        const myLabelEl = document.createElement('div');
+        myLabelEl.className = 'player-label';
+        labelsContainer.appendChild(myLabelEl);
+
+        // ==========================================
+        // 3. 멀티플레이어 Firebase 실시간 동기화
+        // ==========================================
+        let localGuestbookEntries = [];
+        const seenChatIds = new Set();
+
+        async function initMultiplayer() {
+            const syncBadge = document.getElementById('ui-sync-badge');
+            if (!firebaseConfig) {
+                document.getElementById('ui-userid').textContent = "오프라인 모드";
+                if (syncBadge) {
+                    syncBadge.textContent = "● 로컬";
+                    syncBadge.className = "text-[10px] font-bold text-stone-500";
+                }
+                renderGuestbook(localGuestbookEntries);
+                return;
+            }
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                currentUser = auth.currentUser;
+                if (!currentUser) return;
+
+                document.getElementById('ui-userid').textContent = `ID: ${currentUser.uid}`;
+                if (syncBadge) {
+                    syncBadge.textContent = "● 실시간";
+                    syncBadge.className = "text-[10px] font-bold text-emerald-700";
+                }
+
+                // 1) 실시간 플레이어 위치/상태 동기화
+                const playersCol = collection(db, 'artifacts', appId, 'public', 'data', 'players');
+                onSnapshot(playersCol, (snapshot) => {
+                    const now = Date.now();
+                    let activeCount = 0;
+                    const activeIds = new Set();
+                    const onlineNames = [`${myNickname}(나)`];
+
+                    snapshot.forEach((docSnap) => {
+                        const data = docSnap.data();
+                        const uid = docSnap.id;
+                        if (now - (data.updatedAt || 0) < 35000) {
+                            activeCount++;
+                            activeIds.add(uid);
+
+                            if (uid !== currentUser.uid) {
+                                updateOrCreateRemotePlayer(uid, data);
+                                const badge = data.hopaeVerified ? "🪪" : "";
+                                onlineNames.push(`${badge}${data.nickname || "방문객"}`);
+                            }
+                        }
+                    });
+
+                    for (const [uid, obj] of remotePlayers.entries()) {
+                        if (!activeIds.has(uid)) {
+                            scene.remove(obj.mesh);
+                            obj.labelEl.remove();
+                            remotePlayers.delete(uid);
+                        }
+                    }
+
+                    document.getElementById('ui-online-count').textContent = Math.max(1, activeCount);
+                    const listEl = document.getElementById('ui-online-list');
+                    if (listEl) {
+                        listEl.textContent = `접속자: ${onlineNames.join(', ')}`;
+                    }
+                }, (err) => {
+                    console.error("플레이어 동기화 오류:", err);
+                });
+
+                // 2) 실시간 방명록 동기화
+                const guestbookCol = collection(db, 'artifacts', appId, 'public', 'data', 'guestbook');
+                onSnapshot(guestbookCol, (snapshot) => {
+                    const entries = [];
+                    snapshot.forEach((docSnap) => {
+                        entries.push({ id: docSnap.id, ...docSnap.data() });
+                    });
+                    entries.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                    localGuestbookEntries = entries;
+                    renderGuestbook(entries);
+                }, (err) => {
+                    console.error("방명록 동기화 오류:", err);
+                });
+
+                // 3) 실시간 전체 채팅 동기화
+                const chatCol = collection(db, 'artifacts', appId, 'public', 'data', 'chat');
+                const joinTime = Date.now() - 10000;
+                onSnapshot(chatCol, (snapshot) => {
+                    const msgs = [];
+                    snapshot.forEach((docSnap) => {
+                        const d = docSnap.data();
+                        if (!seenChatIds.has(docSnap.id) && (d.createdAt || 0) >= joinTime) {
+                            seenChatIds.add(docSnap.id);
+                            msgs.push(d);
+                        }
+                    });
+                    msgs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+                    msgs.forEach(m => {
+                        if (m.uid !== currentUser.uid) {
+                            addChatLog(`${m.nickname}: ${m.text}`);
+                        }
+                    });
+                }, (err) => {
+                    console.error("채팅 동기화 오류:", err);
+                });
+
+                // 2.5초마다 정기 하트비트 동기화 (가만히 있어도 온라인 상태 유지)
+                setInterval(() => {
+                    if (isGameStarted) syncMyStateToCloud(true);
+                }, 2500);
+
+                window.addEventListener('beforeunload', () => {
+                    if (currentUser && db) {
+                        deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'players', currentUser.uid)).catch(() => {});
+                    }
+                });
+
+            } catch (error) {
+                console.error("Firebase 초기화 실패:", error);
+                if (syncBadge) {
+                    syncBadge.textContent = "● 연결오류";
+                    syncBadge.className = "text-[10px] font-bold text-red-600";
+                }
+            }
+        }
+
+        function updateOrCreateRemotePlayer(uid, data) {
+            if (!remotePlayers.has(uid)) {
+                const avatarObj = createHumanAvatar(false);
+                avatarObj.root.position.set(data.x || 0, 0, data.z || 28);
+                scene.add(avatarObj.root);
+
+                const labelEl = document.createElement('div');
+                labelEl.className = 'player-label';
+                labelsContainer.appendChild(labelEl);
+
+                remotePlayers.set(uid, {
+                    avatarObj,
+                    mesh: avatarObj.root,
+                    labelEl,
+                    targetX: data.x || 0,
+                    targetZ: data.z || 28,
+                    targetRotY: data.rotY || 0,
+                    data
+                });
+            } else {
+                const rp = remotePlayers.get(uid);
+                rp.targetX = data.x;
+                rp.targetZ = data.z;
+                rp.targetRotY = data.rotY;
+                rp.data = data;
+            }
+        }
+
+        let lastSyncTime = 0;
+        let lastSyncedSignature = "";
+        async function syncMyStateToCloud(force = false) {
+            if (!currentUser || !db || !isGameStarted) return;
+            const now = Date.now();
+            const activeBubble = (now - playerState.bubbleTime < 6000) ? playerState.bubble : "";
+            const sig = `${playerState.x.toFixed(2)}|${playerState.z.toFixed(2)}|${playerState.rotY.toFixed(2)}|${playerState.isSitting}|${playerState.hopaeVerified}|${activeBubble}`;
+
+            if (!force) {
+                if (sig === lastSyncedSignature && now - lastSyncTime < 2000) return;
+                if (now - lastSyncTime < 80) return;
+            }
+            lastSyncTime = now;
+            lastSyncedSignature = sig;
+
+            try {
+                const myDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'players', currentUser.uid);
+                await setDoc(myDocRef, {
+                    nickname: myNickname,
+                    x: Number(playerState.x.toFixed(2)),
+                    z: Number(playerState.z.toFixed(2)),
+                    rotY: Number(playerState.rotY.toFixed(2)),
+                    isSitting: Boolean(playerState.isSitting),
+                    hopaeVerified: Boolean(playerState.hopaeVerified),
+                    bubble: activeBubble,
+                    updatedAt: now
+                });
+            } catch (e) {}
+        }
+
+        // ==========================================
+        // 4. 입력 처리 (키보드, 마우스 카메라, 모바일 조이스틱)
+        // ==========================================
+        const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false };
+        let cameraYaw = 0;
+        let isDraggingCamera = false;
+        let prevMouseX = 0;
+        let prevMouseY = 0;
+
+        window.toggleCameraMode = function() {
+            cameraMode = cameraMode === 'first' ? 'third' : 'first';
+            const btn = document.getElementById('btn-view-toggle');
+            const crosshair = document.getElementById('crosshair');
+            if (cameraMode === 'first') {
+                btn.textContent = '👁️ 1인칭 시점';
+                crosshair.classList.remove('hidden');
+                showToast("사람의 눈 높이(1인칭) 시점으로 전환되었습니다.");
+            } else {
+                btn.textContent = '🎥 3인칭 시점';
+                crosshair.classList.add('hidden');
+                showToast("전체 모습(3인칭) 시점으로 전환되었습니다.");
+            }
+        };
+
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = true;
+            if (e.code === 'Space' && currentZone) {
+                e.preventDefault();
+                triggerInteraction();
+            }
+            if (e.key === 'v' || e.key === 'V') {
+                toggleCameraMode();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+        });
+
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            isDraggingCamera = true;
+            prevMouseX = e.clientX;
+            prevMouseY = e.clientY;
+        });
+        window.addEventListener('mouseup', () => { isDraggingCamera = false; });
+        window.addEventListener('mousemove', (e) => {
+            if (!isDraggingCamera) return;
+            const deltaX = e.clientX - prevMouseX;
+            const deltaY = e.clientY - prevMouseY;
+            prevMouseX = e.clientX;
+            prevMouseY = e.clientY;
+            cameraYaw -= deltaX * 0.0055;
+            cameraPitch = Math.max(-0.75, Math.min(0.75, cameraPitch - deltaY * 0.0045));
+        });
+
+        let camTouchId = null;
+        let prevTouchX = 0;
+        let prevTouchY = 0;
+        renderer.domElement.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                camTouchId = e.touches[0].identifier;
+                prevTouchX = e.touches[0].clientX;
+                prevTouchY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+        renderer.domElement.addEventListener('touchmove', (e) => {
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                if (t.identifier === camTouchId) {
+                    const dx = t.clientX - prevTouchX;
+                    const dy = t.clientY - prevTouchY;
+                    prevTouchX = t.clientX;
+                    prevTouchY = t.clientY;
+                    cameraYaw -= dx * 0.006;
+                    cameraPitch = Math.max(-0.75, Math.min(0.75, cameraPitch - dy * 0.005));
+                }
+            }
+        }, { passive: true });
+        renderer.domElement.addEventListener('touchend', () => { camTouchId = null; });
+
+        const joyZone = document.getElementById('joystick-zone');
+        const joyKnob = document.getElementById('joystick-knob');
+        let joyVec = { x: 0, y: 0 };
+        let joyTouchId = null;
+
+        joyZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.changedTouches[0];
+            joyTouchId = touch.identifier;
+            updateJoystick(touch.clientX, touch.clientY);
+        }, { passive: false });
+
+        joyZone.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                if (e.changedTouches[i].identifier === joyTouchId) {
+                    updateJoystick(e.changedTouches[i].clientX, e.changedTouches[i].clientY);
+                }
+            }
+        }, { passive: false });
+
+        const resetJoystick = () => {
+            joyTouchId = null;
+            joyVec = { x: 0, y: 0 };
+            joyKnob.style.transform = `translate(0px, 0px)`;
+        };
+        joyZone.addEventListener('touchend', resetJoystick);
+        joyZone.addEventListener('touchcancel', resetJoystick);
+
+        function updateJoystick(clientX, clientY) {
+            const rect = joyZone.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            let dx = clientX - centerX;
+            let dy = clientY - centerY;
+            const maxDist = 35;
+            const dist = Math.hypot(dx, dy);
+            if (dist > maxDist) {
+                dx = (dx / dist) * maxDist;
+                dy = (dy / dist) * maxDist;
+            }
+            joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+            joyVec.x = dx / maxDist;
+            joyVec.y = dy / maxDist;
+        }
+
+        // ==========================================
+        // 5. 상호작용 구역(Zone) 감지 및 UI 이벤트
+        // ==========================================
+        let currentZone = null;
+
+        const ZONES = [
+            { id: 'inspector', name: '정문 검문소 (관리위원 앞)', x: 3.4, z: 20.5, radius: 4.5, icon: '🪪', prompt: '관리위원에게 호패 검사받기 [Space]' },
+            { id: 'king', name: '전각 어좌 (주상 전하 앞)', x: 2.5, z: -18.5, radius: 4.2, icon: '👑', prompt: '주상 전하 알현하기 [Space]' },
+            { id: 'daeungjeon', name: '대청마루 (필사 서안 앞)', x: -3.2, z: -16.8, radius: 4.5, icon: '🖌️', prompt: '손글씨 명문장 따라쓰기 [Space]' },
+            { id: 'teahouse', name: '대숲 옆 정자 다실', x: -18, z: 2, radius: 5.5, icon: '🍵', prompt: '약수차 끓이기 [Space]' },
+            { id: 'market', name: '전통 저잣거리 (대형 시장)', x: 24, z: 2, radius: 11.5, icon: '🍲', prompt: '저잣거리 좌판 구경하기 [Space]' },
+            { id: 'store1_in', name: '편의점 1호점 내부 진열대', x: 21.2, z: 24.5, radius: 3.4, icon: '🍙', prompt: '편의점 진열대에서 먹거리 고르기 [Space]' },
+            { id: 'store2_in', name: '편의점 2호점 내부 진열대', x: -22.2, z: 22.3, radius: 3.4, icon: '🍜', prompt: '편의점 진열대에서 먹거리 고르기 [Space]' }
+        ];
+
+        // 야외 테이블 좌석 구역도 동적 추가
+        outdoorSeatSpots.forEach(spot => {
+            ZONES.push({
+                id: spot.id,
+                name: spot.name,
+                x: spot.seatX,
+                z: spot.seatZ,
+                radius: 2.8,
+                icon: '🪑',
+                prompt: playerState.heldFood
+                    ? `테이블에 앉아 [${playerState.heldFood.name}] 먹기 [Space]`
+                    : '야외 파라솔 테이블 의자에 앉기 [Space]',
+                seatSpot: spot
+            });
+        });
+
+        function checkZones() {
+            // 야외 테이블 프롬프트 텍스트 실시간 갱신 (음식을 들고 있는지 여부에 따라)
+            for (const z of ZONES) {
+                if (z.seatSpot) {
+                    if (playerState.isSitting) {
+                        z.prompt = playerState.heldFood
+                            ? `[${playerState.heldFood.name}] 계속 먹기 (이동키로 일어나기)`
+                            : '테이블 의자에 앉아 쉬는 중 (WASD로 일어나기)';
+                    } else if (playerState.heldFood) {
+                        z.prompt = `의자에 앉아 [${playerState.heldFood.name}] 먹기 [Space]`;
+                    } else {
+                        z.prompt = '야외 파라솔 테이블 의자에 앉기 [Space]';
+                    }
+                }
+            }
+
+            let foundZone = null;
+            for (const zone of ZONES) {
+                const dist = Math.hypot(playerState.x - zone.x, playerState.z - zone.z);
+                if (dist <= zone.radius) {
+                    foundZone = zone;
+                    break;
+                }
+            }
+
+            const locEl = document.getElementById('ui-location');
+            if (playerState.isSitting && playerState.seatPos) {
+                locEl.textContent = `${playerState.seatPos.name} (착석 중)`;
+            } else if (foundZone) {
+                locEl.textContent = foundZone.name;
+            } else if (playerState.z < 16 && playerState.z > -10) {
+                locEl.textContent = "고택 앞 솔숲 마당";
+            } else if (playerState.z <= -10) {
+                locEl.textContent = "고택 석축 위";
+            } else {
+                locEl.textContent = "솔숲 정문 앞길";
+            }
+
+            const promptEl = document.getElementById('interact-prompt');
+            if (foundZone && !playerState.isSitting) {
+                currentZone = foundZone;
+                document.getElementById('interact-icon').textContent = foundZone.icon;
+                document.getElementById('interact-text').textContent = foundZone.prompt;
+                promptEl.classList.remove('hidden');
+            } else {
+                currentZone = null;
+                promptEl.classList.add('hidden');
+            }
+        }
+
+        window.triggerInteraction = function() {
+            if (!currentZone) return;
+            if (currentZone.id === 'inspector') openInspectorModal();
+            else if (currentZone.id === 'king') openKingModal();
+            else if (currentZone.id === 'daeungjeon') openCalligraphyModal();
+            else if (currentZone.id === 'teahouse') openTeaModal();
+            else if (currentZone.id === 'market') openMarketModal();
+            else if (currentZone.id === 'store1_in' || currentZone.id === 'store2_in') openStoreModal();
+            else if (currentZone.seatSpot) sitAtOutdoorTable(currentZone.seatSpot);
+        };
+
+        function sitAtOutdoorTable(spot) {
+            playerState.isSitting = true;
+            playerState.seatPos = spot;
+            playerState.x = spot.seatX;
+            playerState.z = spot.seatZ;
+            playerState.rotY = spot.faceYaw;
+            cameraYaw = spot.faceYaw + Math.PI;
+            cameraPitch = -0.22;
+
+            if (playerState.heldFood) {
+                const food = playerState.heldFood;
+                playerState.heldFood = null;
+                startEatingSimulation(food.name, food.hungerGain, food.emoji, spot);
+            } else {
+                setMyBubble("🪑 야외 파라솔 테이블에 앉아 쉬는 중~");
+                showToast("야외 테이블 의자에 앉았습니다. 이동키(WASD/조이스틱)를 누르면 일어납니다.");
+            }
+            syncMyStateToCloud(true);
+        }
+
+        window.closeModals = function() {
+            document.getElementById('calligraphy-modal').classList.add('hidden');
+            document.getElementById('tea-modal').classList.add('hidden');
+            document.getElementById('store-modal').classList.add('hidden');
+            document.getElementById('board-modal').classList.add('hidden');
+            document.getElementById('inspector-modal').classList.add('hidden');
+            document.getElementById('king-modal').classList.add('hidden');
+            document.getElementById('market-modal').classList.add('hidden');
+        };
+
+        // --- 관리위원 호패 검사 로직 ---
+        function openInspectorModal() {
+            closeModals();
+            document.getElementById('hopae-card-name').textContent = myNickname;
+            const shortId = currentUser ? currentUser.uid.slice(0, 8).toUpperCase() : "LOCAL-01";
+            document.getElementById('hopae-card-id').textContent = `호패번호: ${shortId}`;
+            const stampEl = document.getElementById('hopae-card-stamp');
+            if (playerState.hopaeVerified) stampEl.classList.remove('hidden');
+            else stampEl.classList.add('hidden');
+            document.getElementById('inspector-modal').classList.remove('hidden');
+        }
+
+        window.verifyHopae = function() {
+            playerState.hopaeVerified = true;
+            document.getElementById('hopae-card-stamp').classList.remove('hidden');
+            document.getElementById('ui-hopae-status').textContent = "🪪 호패: 확인 필(畢)";
+            document.getElementById('ui-hopae-status').className = "font-bold text-emerald-700";
+            setMyBubble("🪪 관리위원께 호패 검사를 마쳤소!");
+            addChatLog(`[검문소] 관리위원이 ${myNickname}님의 호패를 확인하고 출입 도장을 찍어주었습니다.`);
+            showToast("호패 검사가 완료되었습니다! 이제 전각과 왕을 자유롭게 알현할 수 있습니다.");
+            setTimeout(closeModals, 900);
+        };
+
+        // --- 임금님(왕) 알현 로직 ---
+        function openKingModal() {
+            closeModals();
+            const speechEl = document.getElementById('king-speech');
+            if (playerState.hopaeVerified) {
+                speechEl.textContent = `"허허, 관리위원의 호패 검사를 마치고 온 ${myNickname}이구나! 글공부와 다도로 심신을 닦아 어진 백성이 되거라."`;
+            } else {
+                speechEl.textContent = `"멀리서 온 ${myNickname}이구나. 다음번엔 정문 관리위원에게 호패 검사를 먼저 받고 오도록 하거라. 오늘 특별히 알현을 허락하노라."`;
+            }
+            document.getElementById('king-modal').classList.remove('hidden');
+        }
+
+        window.receiveRoyalBlessing = function() {
+            playerState.energy = 100;
+            updateStatusUI();
+            closeModals();
+            setMyBubble("🙇 성은이 망극하옵니다 전하!");
+            addChatLog(`[전각] ${myNickname}님이 주상 전하를 알현하고 격려를 받았습니다.`);
+            showToast("임금님의 격려로 다기(기력)가 100% 가득 찼습니다!");
+        };
+
+        // --- 전통 저잣거리(시장) 로직 ---
+        function openMarketModal() {
+            closeModals();
+            document.getElementById('market-modal').classList.remove('hidden');
+        }
+
+        // --- 손글씨 터치/마우스 필사 체험 로직 ---
+        const QUOTES = [
+            { title: "훈민정음 서문", text: "나랏말싸미 듕귁에 달아 문자와로 서르 사맛디 아니할쎄" },
+            { title: "채근담 명언", text: "물방울이 모여 큰 바다를 이루듯 작은 선행이 모여 큰 덕을 이룬다" },
+            { title: "다산 정약용", text: "부지런하고 검소하면 집안이 일어서고 마음이 맑으면 지혜가 열린다" },
+            { title: "고택 선시", text: "솔바람 소리 들으며 맑은 차 한 잔 마시니 세상 시름 모두 잊었네" }
+        ];
+        let currentQuoteIdx = 0;
+
+        const calCanvas = document.getElementById('calligraphy-canvas');
+        const calCtx = calCanvas.getContext('2d');
+        let isDrawingBrush = false;
+        let lastBrushPt = null;
+        let strokeDistance = 0;
+
+        function resizeCalligraphyCanvas() {
+            const rect = calCanvas.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                calCanvas.width = rect.width * 2;
+                calCanvas.height = rect.height * 2;
+                calCtx.scale(2, 2);
+                calCtx.lineCap = 'round';
+                calCtx.lineJoin = 'round';
+                calCtx.strokeStyle = '#1c1917';
+                calCtx.lineWidth = 4.5;
+            }
+        }
+
+        window.clearCalligraphyCanvas = function() {
+            calCtx.save();
+            calCtx.setTransform(1, 0, 0, 1, 0, 0);
+            calCtx.clearRect(0, 0, calCanvas.width, calCanvas.height);
+            calCtx.restore();
+            strokeDistance = 0;
+            document.getElementById('calligraphy-status').textContent = "필사 진행도: 0%";
+        };
+
+        function getBrushPos(e) {
+            const rect = calCanvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        function startBrushDraw(e) {
+            e.preventDefault();
+            isDrawingBrush = true;
+            lastBrushPt = getBrushPos(e);
+            calCtx.beginPath();
+            calCtx.arc(lastBrushPt.x, lastBrushPt.y, 2.2, 0, Math.PI * 2);
+            calCtx.fillStyle = '#1c1917';
+            calCtx.fill();
+        }
+
+        function moveBrushDraw(e) {
+            if (!isDrawingBrush) return;
+            e.preventDefault();
+            const pt = getBrushPos(e);
+            const dist = Math.hypot(pt.x - lastBrushPt.x, pt.y - lastBrushPt.y);
+            strokeDistance += dist;
+
+            calCtx.lineWidth = Math.max(2.5, Math.min(6.0, 5.5 - dist * 0.12));
+            calCtx.beginPath();
+            calCtx.moveTo(lastBrushPt.x, lastBrushPt.y);
+            calCtx.lineTo(pt.x, pt.y);
+            calCtx.stroke();
+
+            lastBrushPt = pt;
+
+            const pct = Math.min(100, Math.round((strokeDistance / 650) * 100));
+            document.getElementById('calligraphy-status').textContent = `필사 진행도: ${pct}%`;
+        }
+
+        function endBrushDraw() {
+            isDrawingBrush = false;
+            lastBrushPt = null;
+        }
+
+        calCanvas.addEventListener('mousedown', startBrushDraw);
+        calCanvas.addEventListener('mousemove', moveBrushDraw);
+        window.addEventListener('mouseup', endBrushDraw);
+
+        calCanvas.addEventListener('touchstart', startBrushDraw, { passive: false });
+        calCanvas.addEventListener('touchmove', moveBrushDraw, { passive: false });
+        calCanvas.addEventListener('touchend', endBrushDraw);
+
+        function openCalligraphyModal() {
+            closeModals();
+            renderQuote();
+            document.getElementById('calligraphy-modal').classList.remove('hidden');
+            requestAnimationFrame(() => {
+                resizeCalligraphyCanvas();
+                clearCalligraphyCanvas();
+            });
+        }
+
+        function renderQuote() {
+            const q = QUOTES[currentQuoteIdx];
+            document.getElementById('quote-title').textContent = q.title;
+            document.getElementById('quote-target').textContent = q.text;
+        }
+
+        window.nextQuote = function() {
+            currentQuoteIdx = (currentQuoteIdx + 1) % QUOTES.length;
+            renderQuote();
+            clearCalligraphyCanvas();
+        };
+
+        window.submitCalligraphy = async function() {
+            const pct = Math.min(100, Math.round((strokeDistance / 650) * 100));
+            if (pct < 35) {
+                showToast(`진행도가 ${pct}%입니다. 손으로 글씨를 조금 더 정성껏 따라 써주세요!`);
+                return;
+            }
+
+            // 용량 최적화를 위해 축소 캔버스에 한지 배경과 함께 깔끔하게 렌더링
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = 480;
+            exportCanvas.height = 180;
+            const exCtx = exportCanvas.getContext('2d');
+            exCtx.fillStyle = '#fdfbf4';
+            exCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+            exCtx.drawImage(calCanvas, 0, 0, exportCanvas.width, exportCanvas.height);
+            const brushImage = exportCanvas.toDataURL('image/jpeg', 0.78);
+
+            const targetText = QUOTES[currentQuoteIdx].text;
+            const quoteTitle = QUOTES[currentQuoteIdx].title;
+
+            closeModals();
+            setMyBubble(`🖌️ "${quoteTitle}" 손글씨 필사 완료!`);
+            addChatLog(`[알림] ${myNickname}님이 대청마루에서 '${quoteTitle}' 손글씨 필사를 마쳤습니다.`);
+            showToast("손글씨 필사를 완료하여 고택 방명록에 기록되었습니다!");
+
+            const newEntry = {
+                nickname: myNickname,
+                quoteTitle,
+                text: targetText,
+                brushImage,
+                createdAt: Date.now()
+            };
+
+            if (db && currentUser) {
+                try {
+                    const guestbookCol = collection(db, 'artifacts', appId, 'public', 'data', 'guestbook');
+                    await addDoc(guestbookCol, newEntry);
+                } catch (e) {
+                    console.error("방명록 저장 오류:", e);
+                    localGuestbookEntries.unshift(newEntry);
+                    renderGuestbook(localGuestbookEntries);
+                }
+            } else {
+                localGuestbookEntries.unshift(newEntry);
+                renderGuestbook(localGuestbookEntries);
+            }
+        };
+        // --- 방명록 모달 및 즉시 글 등록 ---
+        window.openBoardModal = function() {
+            closeModals();
+            renderGuestbook(localGuestbookEntries);
+            document.getElementById('board-modal').classList.remove('hidden');
+        };
+
+        document.getElementById('guestbook-quick-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const input = document.getElementById('guestbook-quick-input');
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = "";
+
+            const newEntry = {
+                nickname: myNickname,
+                quoteTitle: "방문객 소감",
+                text,
+                brushImage: "",
+                createdAt: Date.now()
+            };
+
+            // 즉시 내 화면 방명록에도 선반영 후 클라우드 동기화
+            localGuestbookEntries.unshift(newEntry);
+            renderGuestbook(localGuestbookEntries);
+            showToast("고택 방명록에 글이 등록되었습니다!");
+            setMyBubble(`📜 방명록에 글을 남겼소!`);
+
+            if (db && currentUser) {
+                try {
+                    const guestbookCol = collection(db, 'artifacts', appId, 'public', 'data', 'guestbook');
+                    await addDoc(guestbookCol, newEntry);
+                } catch (err) {
+                    console.error("방명록 등록 오류:", err);
+                }
+            }
+        });
+
+        function renderGuestbook(entries) {
+            const listEl = document.getElementById('guestbook-list');
+            if (!entries || entries.length === 0) {
+                listEl.innerHTML = `<div class="text-center text-xs text-stone-400 py-8">아직 기록된 방명록이 없습니다. 위 입력창에 글을 남기거나 대청마루에서 손글씨 필사를 해보세요!</div>`;
+                return;
+            }
+            listEl.innerHTML = entries.map(item => {
+                const dateStr = new Date(item.createdAt || Date.now()).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                const imgHtml = item.brushImage 
+                    ? `<img src="${item.brushImage}" alt="손글씨 필사" class="w-full h-24 object-contain bg-[#fdfbf4] border border-stone-300 rounded mt-1" />` 
+                    : '';
+                return `
+                    <div class="bg-stone-50 border border-stone-800 rounded-lg p-3 flex flex-col gap-1">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="font-bold text-stone-900">🖌️ ${escapeHtml(item.nickname)}</span>
+                            <span class="text-[10px] text-stone-500">${escapeHtml(item.quoteTitle || '방문 기록')} · ${dateStr}</span>
+                        </div>
+                        <div class="handwriting text-xl text-stone-800">"${escapeHtml(item.text)}"</div>
+                        ${imgHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // --- 채팅 및 말풍선 ---
+        document.getElementById('chat-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            const msg = input.value.trim();
+            if (!msg) return;
+            input.value = "";
+            setMyBubble(msg);
+            addChatLog(`${myNickname}: ${msg}`);
+
+            if (db && currentUser) {
+                try {
+                    const chatCol = collection(db, 'artifacts', appId, 'public', 'data', 'chat');
+                    await addDoc(chatCol, {
+                        uid: currentUser.uid,
+                        nickname: myNickname,
+                        text: msg,
+                        createdAt: Date.now()
+                    });
+                } catch (err) {}
+            }
+        });
+
+        // --- 전통 다실 (차 끓이기) 로직 ---
+        let selectedTea = { name: '지리산 작설차', energyGain: 35 };
+        let brewProgress = 0;
+
+        function openTeaModal() {
+            closeModals();
+            brewProgress = 0;
+            document.getElementById('tea-progress').style.width = '0%';
+            document.getElementById('tea-brew-msg').textContent = `선택된 차: ${selectedTea.name}`;
+            document.getElementById('tea-modal').classList.remove('hidden');
+        }
+
+        window.selectTea = function(name, energyGain) {
+            selectedTea = { name, energyGain };
+            brewProgress = 0;
+            document.getElementById('tea-progress').style.width = '0%';
+            document.getElementById('tea-brew-msg').textContent = `선택된 차: ${name} (화로를 눌러 끓이세요)`;
+            document.querySelectorAll('.tea-opt').forEach(btn => {
+                btn.classList.remove('bg-emerald-50');
+                if (btn.textContent.includes(name)) btn.classList.add('bg-emerald-50');
+            });
+        };
+
+        window.brewTeaStep = function() {
+            brewProgress += 25;
+            document.getElementById('tea-progress').style.width = `${Math.min(100, brewProgress)}%`;
+            const pot = document.getElementById('tea-pot-icon');
+            pot.style.transform = `rotate(${brewProgress % 50 === 0 ? -15 : 15}deg) scale(1.1)`;
+            setTimeout(() => { pot.style.transform = 'rotate(0deg) scale(1)'; }, 150);
+
+            if (brewProgress >= 100) {
+                playerState.energy = Math.min(100, playerState.energy + selectedTea.energyGain);
+                updateStatusUI();
+                closeModals();
+                setMyBubble(`🍵 향긋한 ${selectedTea.name} 한 잔 마셨소!`);
+                addChatLog(`[알림] ${myNickname}님이 다실에서 ${selectedTea.name}을(를) 끓여 마셨습니다.`);
+                showToast(`${selectedTea.name} 완성! 다기 +${selectedTea.energyGain}% (이동 속도 증가!)`);
+            } else {
+                document.getElementById('tea-brew-msg').textContent = `찻잎이 우러나는 중... (${brewProgress}%)`;
+            }
+        };
+
+        // --- 먹거리 구매 및 실제 음식 섭취 3D 시뮬레이션 상태 ---
+        let eatingState = {
+            active: false,
+            startTime: 0,
+            duration: 3400,
+            itemName: "",
+            hungerGain: 0,
+            emoji: "",
+            lastChewBite: -1,
+            atTable: false
+        };
+
+        function buildFood3DMesh(itemName, targetGroup) {
+            while (targetGroup.children.length > 0) {
+                targetGroup.remove(targetGroup.children[0]);
+            }
+            if (itemName.includes('국밥') || itemName.includes('국수')) {
+                const bowl = createSketchMesh(new THREE.CylinderGeometry(0.11, 0.07, 0.09, 12), 0x3b3632);
+                const soup = createSketchMesh(new THREE.CylinderGeometry(0.10, 0.10, 0.015, 12), 0xd97236);
+                soup.position.y = 0.042;
+                targetGroup.add(bowl, soup);
+            } else if (itemName.includes('김밥')) {
+                const rice = createSketchMesh(new THREE.CylinderGeometry(0.08, 0.08, 0.04, 3), 0xffffff);
+                rice.rotation.x = Math.PI / 2;
+                const seaweed = createSketchMesh(new THREE.BoxGeometry(0.05, 0.05, 0.045), 0x1e2923);
+                seaweed.position.y = -0.02;
+                targetGroup.add(rice, seaweed);
+            } else if (itemName.includes('식혜')) {
+                const cup = createSketchMesh(new THREE.CylinderGeometry(0.055, 0.045, 0.13, 12), 0xf5ebd6);
+                targetGroup.add(cup);
+            } else {
+                // 인절미, 파전, 곶감, 약과 등 접시 + 먹거리
+                const plate = createSketchMesh(new THREE.CylinderGeometry(0.11, 0.09, 0.02, 12), 0xf4f1ea);
+                const snack = createSketchMesh(new THREE.BoxGeometry(0.11, 0.035, 0.09), 0xd4963b);
+                snack.position.y = 0.025;
+                targetGroup.add(plate, snack);
+            }
+        }
+
+        function openStoreModal() {
+            closeModals();
+            document.getElementById('store-modal').classList.remove('hidden');
+        }
+
+        function startEatingSimulation(itemName, hungerGain, emoji, tableSpot = null) {
+            buildFood3DMesh(itemName, fpFoodGroup);
+            fpFoodGroup.visible = true;
+
+            if (tableSpot) {
+                buildFood3DMesh(itemName, tableFoodMeshGroup);
+                tableFoodMeshGroup.position.set(tableSpot.tableX, tableSpot.tableY, tableSpot.tableZ);
+                tableFoodMeshGroup.scale.setScalar(1.35);
+                tableFoodMeshGroup.visible = true;
+            } else {
+                tableFoodMeshGroup.visible = false;
+            }
+
+            eatingState = {
+                active: true,
+                startTime: Date.now(),
+                duration: 3400,
+                itemName,
+                hungerGain,
+                emoji,
+                lastChewBite: -1,
+                atTable: Boolean(tableSpot)
+            };
+
+            document.getElementById('eating-emoji').textContent = emoji;
+            document.getElementById('eating-title').textContent = tableSpot
+                ? `야외 테이블에서 ${itemName} 먹는 중... (냠냠!)`
+                : `${itemName} 먹는 중... (냠냠!)`;
+            document.getElementById('eating-progress').style.width = '0%';
+            document.getElementById('eating-hud').classList.remove('hidden');
+
+            setMyBubble(tableSpot ? `${emoji} 테이블에 앉아 ${itemName} 냠냠~` : `${emoji} ${itemName} 냠냠 먹는 중~`);
+            addChatLog(`[먹거리] ${myNickname}님이 ${tableSpot ? '야외 파라솔 테이블에 앉아 ' : ''}${itemName}을(를) 맛있게 먹기 시작했습니다.`);
+        }
+
+        window.buyFood = function(itemName, hungerGain, emoji) {
+            if (eatingState.active) {
+                showToast("먼저 드시던 음식을 다 드신 후 골라주세요!");
+                return;
+            }
+            closeModals();
+
+            // 편의점 내부에서 구매한 경우: 손에 들고 밖 테이블로 나가 앉아 먹을 수 있도록 손에 들려줌!
+            if (currentZone && (currentZone.id === 'store1_in' || currentZone.id === 'store2_in')) {
+                playerState.heldFood = { name: itemName, hungerGain, emoji };
+                buildFood3DMesh(itemName, fpFoodGroup);
+                fpFoodGroup.visible = true;
+                setMyBubble(`${emoji} ${itemName} 샀다! 밖 테이블에 앉아 먹어야지~`);
+                addChatLog(`[편의점] ${myNickname}님이 편의점에서 ${itemName}을(를) 사서 손에 들었습니다.`);
+                showToast(`${itemName} 구매 완료! 문을 열고 나가 밖 야외 테이블 의자에 앉아 드셔보세요!`);
+                return;
+            }
+
+            // 시장 등 다른 곳에서 구매 시 즉시 먹기 시뮬레이션 시작
+            startEatingSimulation(itemName, hungerGain, emoji, null);
+        };
+
+        function setMyBubble(text) {
+            playerState.bubble = text;
+            playerState.bubbleTime = Date.now();
+            syncMyStateToCloud(true);
+        }
+
+        function addChatLog(text) {
+            const log = document.getElementById('chat-log');
+            const line = document.createElement('div');
+            line.textContent = text;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast-msg');
+            toast.textContent = msg;
+            toast.classList.remove('hidden');
+            clearTimeout(toast._timer);
+            toast._timer = setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3000);
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+        }
+
+        window.teleportSpawn = function() {
+            playerState.x = 0;
+            playerState.z = 28;
+            syncMyStateToCloud(true);
+            showToast("솔숲 정문 앞길로 이동했습니다.");
+        };
+
+        // ==========================================
+        // 6. 게이지(포만감/다기) 및 게임 시작 처리
+        // ==========================================
+        function updateStatusUI() {
+            const h = Math.round(playerState.hunger);
+            const e = Math.round(playerState.energy);
+            document.getElementById('bar-hunger').style.width = `${h}%`;
+            document.getElementById('val-hunger').textContent = `${h}%`;
+            document.getElementById('bar-energy').style.width = `${e}%`;
+            document.getElementById('val-energy').textContent = `${e}%`;
+        }
+
+        setInterval(() => {
+            if (!isGameStarted) return;
+            playerState.hunger = Math.max(0, playerState.hunger - 0.8);
+            playerState.energy = Math.max(0, playerState.energy - 0.5);
+            updateStatusUI();
+
+            if (playerState.hunger === 15) {
+                showToast("꼬르륵~ 배가 고픕니다! 저잣거리 시장이나 편의점에 들러보세요.");
+            }
+        }, 4000);
+
+        window.startGame = function() {
+            const inputNick = document.getElementById('nickname-input').value.trim();
+            if (inputNick) myNickname = inputNick;
+            document.getElementById('ui-nickname').textContent = myNickname;
+            document.getElementById('welcome-modal').classList.add('hidden');
+            isGameStarted = true;
+            setMyBubble("반갑소! 고요한 고택에 들렀소.");
+            syncMyStateToCloud(true);
+        };
+
+        // ==========================================
+        // 7. 3D 화면 투영(이름표/말풍선) & 메인 애니메이션 루프
+        // ==========================================
+        const tempVec = new THREE.Vector3();
+
+        function updateLabelPosition(worldPos, labelEl, nickname, bubbleText, isSelf) {
+            if (isSelf && cameraMode === 'first') {
+                labelEl.style.display = 'none';
+                return;
+            }
+
+            tempVec.copy(worldPos);
+            tempVec.y += 2.15;
+            tempVec.project(camera);
+
+            if (tempVec.z > 1) {
+                labelEl.style.display = 'none';
+                return;
+            }
+
+            const x = (tempVec.x * 0.5 + 0.5) * window.innerWidth;
+            const y = (-(tempVec.y * 0.5) + 0.5) * window.innerHeight;
+
+            labelEl.style.display = 'block';
+            labelEl.style.left = `${x}px`;
+            labelEl.style.top = `${y}px`;
+
+            let html = `<div class="px-2 py-0.5 rounded-full text-[11px] font-bold border border-stone-800 ${isSelf ? 'bg-stone-800 text-white' : 'bg-white/90 text-stone-900'} shadow-xs">${escapeHtml(nickname)}</div>`;
+            if (bubbleText) {
+                html = `<div class="sketch-box px-2.5 py-1 text-xs font-bold text-stone-900 mb-1 max-w-[180px] whitespace-normal leading-tight">${escapeHtml(bubbleText)}</div>` + html;
+            }
+            if (labelEl.innerHTML !== html) {
+                labelEl.innerHTML = html;
+            }
+        }
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.1);
+            const now = Date.now();
+            const timeSec = now * 0.001;
+
+            for (const p of steamParticles) {
+                const cycle = (timeSec * 0.7 + p.userData.offset) % 1;
+                p.position.y = 1.45 + cycle * 1.1;
+                p.material.opacity = (1 - cycle) * 0.45;
+                p.scale.setScalar(0.8 + cycle * 0.8);
+            }
+
+            // 편의점 유리 출입문 자동 열림/닫힘 애니메이션
+            for (const door of storeDoors) {
+                const distToDoor = Math.hypot(playerState.x - door.worldX, playerState.z - door.worldZ);
+                const shouldOpen = distToDoor < 3.6;
+                const targetOpen = shouldOpen ? 1.05 : 0;
+                door.openAmount += (targetOpen - door.openAmount) * 0.14;
+                door.doorL.position.x = -0.62 - door.openAmount;
+                door.doorR.position.x = 0.62 + door.openAmount;
+            }
+
+            if (isGameStarted) {
+                let moveForward = 0;
+                let moveRight = 0;
+                if (keys.w || keys.ArrowUp) moveForward -= 1;
+                if (keys.s || keys.ArrowDown) moveForward += 1;
+                if (keys.a || keys.ArrowLeft) moveRight -= 1;
+                if (keys.d || keys.ArrowRight) moveRight += 1;
+
+                if (Math.abs(joyVec.x) > 0.1 || Math.abs(joyVec.y) > 0.1) {
+                    moveRight = joyVec.x;
+                    moveForward = joyVec.y;
+                }
+
+                let speed = 7.5;
+                if (playerState.energy > 50) speed += 2.0;
+                if (playerState.hunger <= 10) speed -= 2.5;
+
+                if (moveForward !== 0 || moveRight !== 0) {
+                    // 앉아 있을 때 이동키를 누르면 자동으로 자리에서 일어남
+                    if (playerState.isSitting) {
+                        playerState.isSitting = false;
+                        playerState.seatPos = null;
+                        showToast("의자에서 일어났습니다.");
+                    }
+
+                    const angle = Math.atan2(moveRight, moveForward) + cameraYaw;
+                    const vx = Math.sin(angle) * speed * dt;
+                    const vz = Math.cos(angle) * speed * dt;
+
+                    playerState.x = Math.max(-55, Math.min(55, playerState.x + vx));
+                    playerState.z = Math.max(-45, Math.min(55, playerState.z + vz));
+
+                    if (cameraMode === 'first') {
+                        playerState.rotY = cameraYaw + Math.PI;
+                    } else {
+                        playerState.rotY = angle;
+                    }
+
+                    playerState.isMoving = true;
+                    syncMyStateToCloud(false);
+                } else {
+                    if (cameraMode === 'first' && !playerState.isSitting) {
+                        playerState.rotY = cameraYaw + Math.PI;
+                    }
+                    playerState.isMoving = false;
+                    syncMyStateToCloud(false);
+                }
+
+                animateHumanWalk(myAvatarObj, playerState.isMoving, timeSec, 0, playerState.isSitting);
+
+                // 실제 음식 섭취 3D 시뮬레이션 애니메이션 처리
+                if (eatingState.active) {
+                    const elapsed = now - eatingState.startTime;
+                    const progress = Math.min(1, elapsed / eatingState.duration);
+                    document.getElementById('eating-progress').style.width = `${Math.round(progress * 100)}%`;
+
+                    // 3번 입으로 가져가서 씹는 모션 (1인칭 손 + 3인칭 오른팔)
+                    const biteCycle = Math.sin(progress * Math.PI * 6);
+                    const lift = Math.max(0, biteCycle);
+
+                    fpRightHand.position.set(0.25 - lift * 0.16, -0.22 + lift * 0.16, -0.52 + lift * 0.24);
+                    fpRightSleeve.position.set(0.28 - lift * 0.12, -0.26 + lift * 0.12, -0.35 + lift * 0.18);
+                    fpFoodGroup.position.copy(fpRightHand.position);
+                    fpFoodGroup.position.y += 0.05;
+                    fpFoodGroup.scale.setScalar(Math.max(0.25, 1 - progress * 0.75));
+                    if (tableFoodMeshGroup.visible) {
+                        tableFoodMeshGroup.scale.setScalar(Math.max(0.3, (1 - progress * 0.75) * 1.35));
+                    }
+
+                    // 3인칭 시점 오른팔 올리기 모션
+                    myAvatarObj.rightArm.rotation.x = -1.1 - lift * 0.75;
+                    myAvatarObj.rightArm.rotation.z = 0.25;
+
+                    const currentBite = Math.floor(progress * 3);
+                    if (currentBite > eatingState.lastChewBite && currentBite < 3) {
+                        eatingState.lastChewBite = currentBite;
+                        document.getElementById('eating-title').textContent =
+                            currentBite === 0 ? `${eatingState.itemName} 한 입 크게 냠!` :
+                            currentBite === 1 ? `오물오물~ 꿀맛이구나!` : `마지막 한 입까지 싹싹!`;
+                    }
+
+                    if (progress >= 1) {
+                        eatingState.active = false;
+                        fpFoodGroup.visible = false;
+                        tableFoodMeshGroup.visible = false;
+                        fpFoodGroup.scale.setScalar(1);
+                        fpRightHand.position.set(0.25, -0.22, -0.52);
+                        fpRightSleeve.position.set(0.28, -0.26, -0.35);
+                        myAvatarObj.rightArm.rotation.z = 0;
+
+                        document.getElementById('eating-hud').classList.add('hidden');
+                        playerState.hunger = Math.min(100, playerState.hunger + eatingState.hungerGain);
+                        updateStatusUI();
+                        setMyBubble(`${eatingState.emoji} ${eatingState.itemName} 완식! 든든하구나~`);
+                        showToast(`${eatingState.itemName}을(를) 다 먹었습니다! 포만감 +${eatingState.hungerGain}%`);
+                    }
+                }
+
+                let groundHeight = 0;
+                if (Math.abs(playerState.x) < 10.5 && playerState.z > -25.8 && playerState.z < -10.2) {
+                    groundHeight = 1.8;
+                }
+
+                myAvatar.position.set(playerState.x, groundHeight, playerState.z);
+                myAvatar.rotation.y = playerState.rotY;
+
+                checkZones();
+            }
+
+            for (const rp of remotePlayers.values()) {
+                const distMoved = Math.hypot(rp.targetX - rp.mesh.position.x, rp.targetZ - rp.mesh.position.z);
+                const isRemoteMoving = distMoved > 0.025;
+
+                rp.mesh.position.x += (rp.targetX - rp.mesh.position.x) * 0.24;
+                rp.mesh.position.z += (rp.targetZ - rp.mesh.position.z) * 0.24;
+                rp.mesh.rotation.y = rp.targetRotY;
+
+                animateHumanWalk(rp.avatarObj, isRemoteMoving, timeSec, rp.targetX, Boolean(rp.data.isSitting));
+
+                let baseY = 0;
+                if (Math.abs(rp.mesh.position.x) < 10.5 && rp.mesh.position.z > -25.8 && rp.mesh.position.z < -10.2) {
+                    baseY = 1.8;
+                }
+                rp.mesh.position.y = baseY;
+
+                const badgePrefix = rp.data.hopaeVerified ? "🪪 " : "";
+                updateLabelPosition(rp.mesh.position, rp.labelEl, badgePrefix + (rp.data.nickname || "방문객"), rp.data.bubble || "", false);
+            }
+
+            const activeMyBubble = (now - playerState.bubbleTime < 6000) ? playerState.bubble : "";
+            updateLabelPosition(myAvatar.position, myLabelEl, myNickname, activeMyBubble, true);
+
+            for (let i = 0; i < npcList.length; i++) {
+                const npc = npcList[i];
+                animateHumanWalk(npc.avatarObj, false, timeSec, i * 1.3);
+                updateLabelPosition(npc.avatarObj.root.position, npc.labelEl, npc.name, npc.bubble, false);
+            }
+
+            if (cameraMode === 'first') {
+                myAvatar.visible = false;
+                fpHandsGroup.visible = true;
+
+                const headBob = playerState.isMoving ? Math.sin(timeSec * 10) * 0.045 : Math.sin(timeSec * 2.2) * 0.01;
+                const sitOffset = playerState.isSitting ? -0.42 : 0;
+                const eyeY = myAvatar.position.y + 1.66 + sitOffset + headBob;
+
+                camera.position.set(myAvatar.position.x, eyeY, myAvatar.position.z);
+
+                camera.rotation.order = 'YXZ';
+                camera.rotation.y = cameraYaw;
+                camera.rotation.x = cameraPitch;
+                camera.rotation.z = 0;
+
+                fpHandsGroup.position.y = playerState.isMoving ? Math.abs(Math.cos(timeSec * 10)) * 0.025 : 0;
+            } else {
+                myAvatar.visible = true;
+                fpHandsGroup.visible = false;
+
+                const camDist = 11;
+                const camHeight = 6.5;
+                const targetCamX = myAvatar.position.x + Math.sin(cameraYaw) * camDist;
+                const targetCamZ = myAvatar.position.z + Math.cos(cameraYaw) * camDist;
+                const targetCamY = myAvatar.position.y + camHeight;
+
+                camera.position.x += (targetCamX - camera.position.x) * 0.14;
+                camera.position.y += (targetCamY - camera.position.y) * 0.14;
+                camera.position.z += (targetCamZ - camera.position.z) * 0.14;
+                camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1.4, myAvatar.position.z);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        window.onload = () => {
+            initMultiplayer();
+            animate();
+        };
+    </script>
+</body>
+</html>
